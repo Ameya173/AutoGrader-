@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AutoGrader— Teacher</title>
+<link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+<div class="app">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sb-brand"><div class="sb-brand-icon">🎓</div><span class="sb-brand-name">AutoGrader</span></div>
+  <div class="sb-user"><div class="sb-av" id="sb-av">T</div><div><div class="sb-name" id="sb-name">Teacher</div><div class="sb-role">Teacher</div></div></div>
+  <nav class="sb-nav">
+    <div class="sb-sec">WORKSPACE</div>
+    <button class="nav-btn active" id="nav-dash" onclick="navTo('dash')"><span class="nav-icon">⊞</span><span>Dashboard</span></button>
+    <button class="nav-btn" id="nav-create" onclick="navTo('create')"><span class="nav-icon">＋</span><span>Create Exam</span></button>
+    <button class="nav-btn" id="nav-exams" onclick="navTo('exams')"><span class="nav-icon">◫</span><span>My Exams</span></button>
+    <div class="sb-sec">GRADING</div>
+    <button class="nav-btn" id="nav-grade" onclick="navTo('grade')"><span class="nav-icon">⬡</span><span>Grade Papers</span><span class="nav-badge hidden" id="pending-badge">0</span></button>
+    <button class="nav-btn" id="nav-analytics" onclick="navTo('analytics')"><span class="nav-icon">📊</span><span>Analytics</span></button>
+  </nav>
+  <div class="sb-foot"><button class="nav-btn" onclick="logout()"><span class="nav-icon">⇤</span><span>Sign Out</span></button></div>
+</aside>
+
+<!-- MAIN -->
+<main class="main"><div class="wrap">
+
+<!-- DASHBOARD -->
+<div class="page active" id="page-dash">
+  <div class="ph"><div><h1>Dashboard</h1><p id="dash-greet">Welcome back</p></div><button class="btn btn-primary" onclick="navTo('create')">+ New Exam</button></div>
+  <div class="stats" id="dash-stats"></div>
+
+  <!-- ML Models Panel -->
+  <div class="card mb-16" style="background:linear-gradient(135deg,rgba(37,99,235,.07),transparent);border-color:rgba(37,99,235,.2)">
+    <div class="card-header mb-12"><div class="card-title">🤖 ML Models Active</div><span class="badge bg-blue">Ensemble Grading</span></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:12px"><div class="mono" style="font-size:.65rem;color:var(--blue);margin-bottom:3px">SBERT 40%</div><div style="font-size:.72rem;font-weight:600;color:#fff">Sentence-BERT</div><div class="text-dim text-xs">Semantic similarity via transformer embeddings</div></div>
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:12px"><div class="mono" style="font-size:.65rem;color:var(--green);margin-bottom:3px">TF-IDF 25%</div><div style="font-size:.72rem;font-weight:600;color:#fff">TF-IDF Cosine</div><div class="text-dim text-xs">Term frequency × inverse document frequency</div></div>
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:12px"><div class="mono" style="font-size:.65rem;color:var(--gold);margin-bottom:3px">ROUGE-L 20%</div><div style="font-size:.72rem;font-weight:600;color:#fff">ROUGE-L LCS</div><div class="text-dim text-xs">Longest common subsequence scoring</div></div>
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:12px"><div class="mono" style="font-size:.65rem;color:var(--purple);margin-bottom:3px">KEYWORDS 15%</div><div style="font-size:.72rem;font-weight:600;color:#fff">Keyword BM25</div><div class="text-dim text-xs">Expected term coverage scoring</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:12px"><div style="font-size:.72rem;font-weight:600;color:#fff">👁 OpenCV SSIM</div><div class="text-dim text-xs">Structural Similarity Index for diagram comparison — extracts diagrams via contour detection</div></div>
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:12px"><div style="font-size:.72rem;font-weight:600;color:#fff">📊 KMeans Clustering</div><div class="text-dim text-xs">Groups student answers by similarity — reveals copying patterns and common misconceptions</div></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card"><div class="card-header"><div class="card-title">Pending Grading</div><button class="btn btn-ghost btn-sm" onclick="navTo('grade')">View →</button></div><div id="dash-pending"></div></div>
+    <div class="card"><div class="card-header"><div class="card-title">Recent Activity</div></div><div id="dash-recent"></div></div>
+  </div>
+</div>
+
+<!-- CREATE EXAM -->
+<div class="page" id="page-create">
+  <div class="ph"><div><h1>Create Exam</h1><p>Build questions manually with sub-questions, OR options, and marks</p></div></div>
+  <div class="grid-2" style="align-items:start">
+
+    <!-- Left: Exam details + question builder -->
+    <div>
+      <div class="card mb-16">
+        <div class="card-title mb-16">📋 Exam Details</div>
+        <div class="field-row">
+          <div class="field"><label>Title *</label><input id="ex-title" placeholder="e.g. OS Mid-Term Unit 3"></div>
+          <div class="field"><label>Subject *</label><input id="ex-subject" placeholder="e.g. Computer Science"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Total Marks</label><input type="number" id="ex-marks" value="100"></div>
+        </div>
+        <div class="field"><label>Instructions</label><textarea id="ex-inst" rows="2" placeholder="Instructions for students…"></textarea></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Questions Builder</div><button class="btn btn-primary btn-sm" onclick="addQuestion()">+ Add Question</button></div>
+        <div id="q-list"></div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-secondary btn-lg" onclick="saveExam('draft')">Save Draft</button>
+        <button class="btn btn-primary btn-lg" id="pub-btn" onclick="saveExam('published')">✓ Publish Exam</button>
+      </div>
+    </div>
+
+    <!-- Right: Reference paper upload -->
+    <div>
+      <div class="card" style="position:sticky;top:24px">
+        <div class="card-title mb-8">📄 OR: Upload Reference Answer Paper</div>
+        <div class="card-sub mb-16" style="line-height:1.6">Upload <strong>one perfectly answered paper</strong> — AI extracts all Q&A automatically. All student sheets will be graded against this reference.</div>
+
+        <div style="background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.15);border-radius:var(--rs);padding:12px;margin-bottom:14px">
+          <div style="font-size:.72rem;font-weight:700;color:var(--blue);margin-bottom:6px">🚀 USP: Reference-Based Grading</div>
+          <div style="font-size:.7rem;color:var(--text2);line-height:1.7">
+            Instead of manually setting model answers, upload ONE correct paper.<br>
+            → AI extracts questions + ideal answers<br>
+            → SBERT compares semantic meaning<br>
+            → OpenCV extracts + compares diagrams<br>
+            → KMeans clusters similar answers to detect copying
+          </div>
+        </div>
+
+
+        <div class="drop-zone" id="ref-zone" onclick="document.getElementById('ref-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="refDrop(event)">
+          <input type="file" id="ref-input" accept=".pdf,.png,.jpg,.jpeg,.webp" onchange="uploadRef(this.files[0])">
+          <div class="drop-icon" id="ref-icon">📄</div>
+          <h3 id="ref-title" style="font-size:.88rem;font-weight:600;margin-bottom:4px">Drop reference answer paper</h3>
+          <p id="ref-sub" style="font-size:.75rem;color:var(--text2)">PDF · PNG · JPG — AI will extract all answers</p>
+        </div>
+        <div id="ref-status" class="mt-12"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MY EXAMS -->
+<div class="page" id="page-exams">
+  <div class="ph"><div><h1>My Exams</h1><p>Manage and publish your exams</p></div><button class="btn btn-primary" onclick="navTo('create')">+ New Exam</button></div>
+  <div class="card"><div class="tbl-wrap"><table><thead><tr><th>Title</th><th>Subject</th><th>Questions</th><th>Marks</th><th>Mode</th><th>Status</th><th>Submissions</th><th>Actions</th></tr></thead><tbody id="exams-tbody"></tbody></table></div></div>
+</div>
+
+<!-- GRADE PAPERS -->
+<div class="page" id="page-grade">
+  <div class="ph"><div><h1>Grade Papers</h1><p>Upload student answer sheets — ML grades automatically</p></div></div>
+  <div class="grid-2" style="align-items:start">
+    <div class="card">
+      <div class="card-title mb-16">📤 Upload Answer Sheet</div>
+      <div class="field"><label>Select Exam *</label><select id="grade-exam"></select></div>
+      <div class="field"><label>Student Name *</label><select id="grade-sname"></select></div>
+      <div class="drop-zone" id="sheet-zone" onclick="document.getElementById('sheet-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="sheetDrop(event)">
+        <input type="file" id="sheet-input" accept=".pdf,.png,.jpg,.jpeg,.webp" onchange="setSheetFile(this.files[0])">
+        <div class="drop-icon" id="sheet-icon">📝</div>
+        <h3 id="sheet-title" style="font-size:.86rem;font-weight:600;margin-bottom:4px">Drop answer sheet here</h3>
+        <p id="sheet-sub" style="font-size:.74rem;color:var(--text2)">PDF · Image · Scanned or photographed · random order handled</p>
+      </div>
+      <div style="background:var(--bg3);border-radius:var(--rs);padding:12px;margin-top:12px;font-size:.72rem;color:var(--text2);line-height:1.7">
+        <b style="color:var(--text)">What happens:</b><br>
+        1️⃣ Vision OCR extracts answers (handles random order)<br>
+        2️⃣ OpenCV extracts diagram regions via contour detection<br>
+        3️⃣ SBERT+TF-IDF+ROUGE-L+Keywords ensemble scores answers<br>
+        4️⃣ SSIM compares student diagrams vs reference<br>
+        5️⃣ AI generates specific improvement feedback
+      </div>
+      <div id="grade-status" class="mt-12"></div>
+      <button class="btn btn-primary btn-lg w-full mt-12" id="grade-btn" onclick="doGrade()" disabled>⚡ Grade with ML</button>
+    </div>
+    <div>
+      <div class="card mb-16"><div class="card-title mb-12">Pending <span class="badge bg-gold" id="pend-count">0</span></div><div id="pend-list"></div></div>
+    </div>
+  </div>
+  <div id="grade-result" class="mt-16"></div>
+</div>
+
+<!-- ANALYTICS -->
+<div class="page" id="page-analytics">
+  <div class="ph"><div><h1>Analytics & ML Insights</h1><p>Class performance + ML model accuracy</p></div>
+    <select id="anal-exam-sel" class="btn btn-secondary" onchange="loadAnalytics()" style="min-width:200px">
+      <option value="">— Select Exam —</option>
+    </select>
+  </div>
+  <div id="analytics-content"></div>
+</div>
+
+</div></main>
+</div>
+
+<!-- SUBMISSION DETAIL MODAL -->
+<div class="overlay" id="modal-sub">
+  <div class="modal modal-xl">
+    <div class="modal-head"><h3 id="modal-sub-title">Submission</h3><button class="modal-close" onclick="closeModal('modal-sub')">✕</button></div>
+    <div class="modal-body" id="modal-sub-body"></div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="dlReport(currentSid)">⬇ PDF Report</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-sub')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- OVERRIDE MODAL -->
+<div class="overlay" id="modal-ov">
+  <div class="modal modal-sm">
+    <div class="modal-head"><h3>Override Grade</h3><button class="modal-close" onclick="closeModal('modal-ov')">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>New Marks (max: <span id="ov-max">0</span>)</label><input type="number" id="ov-marks" min="0" step="0.5"></div>
+      <div class="field"><label>Reason</label><input id="ov-note" placeholder="Explain reason for override…"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('modal-ov')">Cancel</button>
+      <button class="btn btn-primary" onclick="doOverride()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/utils.js"></script>
+<script>
+if (!Auth.guard('teacher')) throw 0;
+initSidebar();
+const user = Auth.user();
+document.getElementById('dash-greet').textContent = `Good ${['morning','afternoon','evening'][[...new Array(24)].map((_,h)=>h<12?0:h<17?1:2)[new Date().getHours()]]}, ${user.name.split(' ')[0]}`;
+
+let allExams=[], allSubs=[], allStudents=[], pendingSheetFile=null, pendingRefFile=null, currentSid=null, ovSubId=null, ovQIdx=null, currentEditingExamId=null;
+let qItems = []; // question builder state
+
+// ── Load ──
+async function loadAll() {
+  await Promise.all([loadExams(), loadSubs(), loadStudents()]);
+  renderDash();
+}
+async function loadExams() { try { allExams=await api.get('/exams/'); } catch { allExams=[]; } }
+async function loadSubs()  { try { const s=await api.get('/submissions/'); allSubs=s; } catch { allSubs=[]; } }
+
+async function loadStudents() { try { allStudents=await api.get('/auth/students'); } catch { allStudents=[]; } }
+
+loadAll();
+
+// ── DASHBOARD ──
+function renderDash() {
+  const myEx=allExams.filter(e=>e.teacherId===user.id);
+  const graded=allSubs.filter(s=>s.status==='graded');
+  const pend=allSubs.filter(s=>s.status==='pending');
+  const avg=graded.length?Math.round(graded.reduce((s,x)=>s+(x.percentage||0),0)/graded.length):0;
+  const {c}=grade(avg)||{c:'#fff'};
+  document.getElementById('dash-stats').innerHTML=`
+    <div class="stat" style="--stat-color:var(--blue)"><div class="stat-label">Exams</div><div class="stat-value">${myEx.length}</div><div class="stat-sub">${myEx.filter(e=>e.status==='published').length} published</div></div>
+    <div class="stat" style="--stat-color:var(--gold)"><div class="stat-label">Pending</div><div class="stat-value">${pend.length}</div><div class="stat-sub">to be graded</div></div>
+    <div class="stat" style="--stat-color:var(--green)"><div class="stat-label">Graded</div><div class="stat-value">${graded.length}</div><div class="stat-sub">complete</div></div>
+    <div class="stat" style="--stat-color:${grade(avg).c}"><div class="stat-label">Class Avg</div><div class="stat-value">${avg||'—'}${avg?'%':''}</div></div>`;
+
+  const pb=document.getElementById('pending-badge');
+  if (pend.length){pb.textContent=pend.length;pb.classList.remove('hidden');}else pb.classList.add('hidden');
+
+  const pendEl=document.getElementById('dash-pending');
+  pendEl.innerHTML=!pend.length?empty('✓','All caught up!','No pending papers'):
+    pend.slice(0,5).map(s=>`<div class="flex items-c jc-sb" style="padding:9px 0;border-bottom:1px solid var(--border)">
+      <div><div style="font-size:.8rem;font-weight:600">${esc(s.studentName)}</div><div class="text-xs text-muted">${esc(s.examTitle)} · ${timeAgo(s.createdAt)}</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="openSub('${s.id}')">Grade</button>
+    </div>`).join('');
+
+  document.getElementById('dash-recent').innerHTML=!graded.length?empty('◈','No results','Grade some papers'):
+    graded.slice(0,5).map(s=>{const{g:gr,c}=grade(s.percentage||0);return`<div class="flex items-c jc-sb" style="padding:9px 0;border-bottom:1px solid var(--border)">
+      <div><div style="font-size:.8rem;font-weight:600">${esc(s.studentName)}</div><div class="text-xs text-muted">${esc(s.examTitle)}</div></div>
+      <div class="text-right"><div class="mono" style="font-weight:800;color:${c}">${gr}</div><div class="text-xs text-muted">${s.percentage}%</div></div>
+    </div>`}).join('');
+}
+
+// ── QUESTION BUILDER ──
+function addQuestion() {
+  qItems.push({text:'',marks:10,modelAnswer:'',keywords:'',hasDiagram:false,subQuestions:[],orEnabled:false});
+  renderQList();
+}
+function addSubQ(qi) {
+  qItems[qi].subQuestions.push({text:'',marks:5,modelAnswer:'',isOr:false,hasDiagram:false});
+  renderQList();
+}
+function removeQ(qi) { qItems.splice(qi,1); renderQList(); }
+function removeSubQ(qi,si) { qItems[qi].subQuestions.splice(si,1); renderQList(); }
+
+function renderQList() {
+  const el=document.getElementById('q-list');
+  if (!qItems.length){el.innerHTML='<div class="text-xs text-dim" style="padding:16px;text-align:center">No questions yet — click + Add Question</div>';return;}
+  el.innerHTML=qItems.map((q,qi)=>`
+    <div class="q-item">
+      <div class="q-item-head">
+        <span class="q-num-badge">Q${qi+1}</span>
+        <div style="flex:1"><input style="width:100%;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:7px 10px;color:var(--text);font-size:.82rem;outline:none" placeholder="Question text…" value="${esc(q.text)}" oninput="qItems[${qi}].text=this.value"></div>
+        <input type="number" min="1" value="${q.marks}" style="width:56px;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:6px;color:var(--gold);font-family:'JetBrains Mono';text-align:center;font-size:.82rem;outline:none" oninput="qItems[${qi}].marks=+this.value">
+        <span style="font-size:.7rem;color:var(--text3)">M</span>
+        <button onclick="removeQ(${qi})" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:4px">✕</button>
+      </div>
+      <div style="margin-bottom:8px">
+        <textarea style="width:100%;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:7px 10px;color:rgba(255,255,255,.8);font-size:.76rem;outline:none" placeholder="Ideal Model Answer (for manual/AI grading reference)…" oninput="qItems[${qi}].modelAnswer=this.value">${esc(q.modelAnswer||'')}</textarea>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input style="flex:1;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:6px 9px;color:var(--text2);font-size:.75rem;outline:none" placeholder="Keywords (comma-separated, for ML grading)" value="${esc(q.keywords)}" oninput="qItems[${qi}].keywords=this.value">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text2);cursor:pointer;flex-shrink:0">
+          <input type="checkbox" ${q.hasDiagram?'checked':''} onchange="qItems[${qi}].hasDiagram=this.checked"> Diagram
+        </label>
+      </div>
+      ${q.subQuestions.map((sq,si)=>`<div class="sub-q">
+        <div style="display:flex;align-items:center;gap:8px">
+          ${sq.isOr?'<span class="or-label">OR</span>':''}
+          <span style="font-family:\'JetBrains Mono\';font-size:.68rem;color:var(--text3);">${qi+1}${String.fromCharCode(97+si)}</span>
+          <input style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:6px 9px;color:var(--text);font-size:.79rem;outline:none" placeholder="Sub-question…" value="${esc(sq.text)}" oninput="qItems[${qi}].subQuestions[${si}].text=this.value">
+          <input type="number" min="1" value="${sq.marks}" style="width:50px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:5px;color:var(--gold);font-family:'JetBrains Mono';text-align:center;font-size:.78rem;outline:none" oninput="qItems[${qi}].subQuestions[${si}].marks=+this.value">
+          <span style="font-size:.68rem;color:var(--text3)">M</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:.68rem;color:var(--text2);cursor:pointer">
+            <input type="checkbox" ${sq.isOr?'checked':''} onchange="qItems[${qi}].subQuestions[${si}].isOr=this.checked;renderQList()"> OR
+          </label>
+          <button onclick="removeSubQ(${qi},${si})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:.8rem">✕</button>
+        </div>
+        <div style="margin:4px 0 8px 18px">
+          <textarea style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:5px 9px;color:rgba(255,255,255,.7);font-size:.72rem;outline:none" placeholder="Model Answer for sub-question…" oninput="qItems[${qi}].subQuestions[${si}].modelAnswer=this.value">${esc(sq.modelAnswer||'')}</textarea>
+        </div>
+      </div>`).join('')}
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px;font-size:.7rem" onclick="addSubQ(${qi})">+ Sub-question / OR option</button>
+    </div>`).join('');
+}
+
+async function saveExam(status) {
+  const title=document.getElementById('ex-title').value.trim(), subject=document.getElementById('ex-subject').value.trim();
+  if (!title||!subject){toast('Title and subject required','e');return;}
+  const btn=document.getElementById('pub-btn'); btn.disabled=true; btn.innerHTML=SPIN+(currentEditingExamId?' Updating…':' Saving…');
+  const questions = qItems.map((q,i)=>({
+    number: String(i+1), text:q.text, marks:q.marks,
+    keywords: (q.keywords||'').split(',').map(k=>k.trim()).filter(Boolean),
+    hasDiagram:q.hasDiagram, modelAnswer:q.modelAnswer||'',
+    subQuestions: (q.subQuestions||[]).map((sq,j)=>({
+      number:`${i+1}${String.fromCharCode(97+j)}`, 
+      text:sq.text, marks:sq.marks, isOr:sq.isOr, hasDiagram:sq.hasDiagram, modelAnswer:sq.modelAnswer||''
+    }))
+  }));
+  try {
+    const data = {title,subject,
+      totalMarks:+document.getElementById('ex-marks').value||100, instructions:document.getElementById('ex-inst').value, questions, status};
+    let exam;
+    if (currentEditingExamId) {
+      exam = await api.put(`/exams/${currentEditingExamId}`, data);
+    } else {
+      exam = await api.post('/exams/', data);
+    }
+    
+    // Auto-upload reference if pending
+    if (pendingRefFile) {
+      toast('Uploading reference paper…','i');
+      await uploadRef(pendingRefFile, exam.id);
+    }
+
+    await loadAll();
+    toast(status==='published'?'Exam published!':'Saved!','s');
+    qItems=[]; renderQList(); currentEditingExamId=null; pendingRefFile=null;
+    navTo('exams');
+  } catch(e){ toast(e.message,'e'); }
+  finally { btn.disabled=false; btn.innerHTML='✓ Publish Exam'; }
+}
+
+function editExam(id) {
+  const e = allExams.find(x=>x.id===id);
+  if (!e) return;
+  currentEditingExamId = id;
+  navTo('create');
+  document.getElementById('page-create').querySelector('h1').textContent = 'Edit Exam';
+  document.getElementById('ex-title').value = e.title;
+  document.getElementById('ex-subject').value = e.subject;
+  document.getElementById('ex-marks').value = e.totalMarks;
+  document.getElementById('ex-inst').value = e.instructions || '';
+  
+  // Reset ref UI
+  document.getElementById('ref-icon').textContent='📄';
+  document.getElementById('ref-title').textContent='Drop reference answer paper';
+  document.getElementById('ref-status').innerHTML='';
+  pendingRefFile = null;
+
+  qItems = (e.questions||[]).map(q=>({
+    text:q.text, marks:q.marks, modelAnswer:q.modelAnswer||'', 
+    keywords:(q.keywords||[]).join(', '), hasDiagram:q.hasDiagram,
+    subQuestions: (q.subQuestions||[]).map(sq=>({...sq}))
+  }));
+  renderQList();
+}
+
+// ── REFERENCE PAPER ──
+async function uploadRef(file, forceId=null) {
+  if (!file) return;
+  const examId = forceId || currentEditingExamId;
+  
+  if (!examId) {
+    // Just store for later
+    pendingRefFile = file;
+    document.getElementById('ref-icon').textContent='📎';
+    document.getElementById('ref-title').textContent=file.name;
+    document.getElementById('ref-status').innerHTML='<span class="badge bg-gold">Ready to upload on save</span>';
+    return;
+  }
+
+  document.getElementById('ref-icon').textContent='⏳';
+  document.getElementById('ref-title').textContent=file.name;
+  document.getElementById('ref-status').innerHTML=aiLoad('AI extracting questions and answers from reference paper…');
+  try {
+    const fd=new FormData(); fd.append('file',file);
+    const res=await api.upload(`/exams/${examId}/reference`,fd);
+    document.getElementById('ref-icon').textContent='✅';
+    document.getElementById('ref-status').innerHTML=`<span class="badge bg-green">✓ ${res.message}</span>`;
+    toast('Reference paper processed!','s');
+
+    // Sync Questions Builder with extracted data
+    if (res.questions && res.questions.length > 0) {
+      qItems = res.questions.map(q => ({
+        text: q.text,
+        marks: q.marks,
+        modelAnswer: q.modelAnswer || '', 
+        keywords: (q.keywords||[]).join(', '),
+        hasDiagram: q.hasDiagram || false,
+        subQuestions: (q.subQuestions||[]).map(sq=>({...sq}))
+      }));
+      
+      // Update Total Marks field in UI
+      if (res.totalMarks) {
+        document.getElementById('ex-marks').value = res.totalMarks;
+      }
+      
+      renderQList();
+      toast(`Synced ${res.questions.length} questions from AI`,'i');
+    }
+    await loadAll();
+  } catch(e){
+    document.getElementById('ref-icon').textContent='❌';
+    const msg = e.message || 'AI failed to extract questions.';
+    document.getElementById('ref-status').innerHTML=`<span style="color:var(--red);font-size:.8rem">✗ ${msg}</span>`;
+    toast(msg,'e');
+    throw e;
+  }
+}
+function refDrop(e){e.preventDefault();document.getElementById('ref-zone').classList.remove('drag');uploadRef(e.dataTransfer.files[0]);}
+
+// ── MY EXAMS ──
+function renderExamsPage() {
+  const tbody=document.getElementById('exams-tbody');
+  const myEx=allExams.filter(e=>e.teacherId===user.id).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  if (!myEx.length){tbody.innerHTML=`<tr><td colspan="8">${empty('◫','No exams','Create your first exam')}</td></tr>`;return;}
+  tbody.innerHTML=myEx.map(e=>{
+    const eSubs=allSubs.filter(s=>s.examId===e.id);
+    const flatQ=(e.questions||[]).reduce((s,q)=>s+1+(q.subQuestions?.length||0),0);
+    return`<tr>
+      <td><div style="font-weight:600">${esc(e.title)}</div></td>
+      <td class="text-muted">${esc(e.subject)}</td>
+      <td class="mono">${flatQ}</td>
+      <td class="mono" style="color:var(--gold)">${e.totalMarks}</td>
+      <td><span class="badge ${e.gradingMode==='reference'?'bg-purple':'bg-blue'}">${e.gradingMode==='reference'?'Reference':'Manual'}</span></td>
+      <td><span class="badge ${e.status==='published'?'bg-green':'bg-gray'}">${e.status}</span></td>
+      <td>${eSubs.length} <span class="text-dim">(${eSubs.filter(s=>s.status==='graded').length} graded)</span></td>
+      <td style="display:flex;gap:5px">
+        <button class="btn btn-secondary btn-sm" onclick="editExam('${e.id}')">Edit</button>
+        ${e.status==='draft'?`<button class="btn btn-success btn-sm" onclick="pubExam('${e.id}')">Publish</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="loadAnalyticsForExam('${e.id}')">Analytics</button>
+        <button class="btn btn-danger btn-sm" onclick="delExam('${e.id}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+async function pubExam(id){try{await api.post(`/exams/${id}/publish`,{});toast('Published!','s');await loadAll();renderExamsPage();}catch(e){toast(e.message,'e');}}
+async function delExam(id){if(!confirm('Delete?'))return;try{await api.delete(`/exams/${id}`);toast('Deleted','i');await loadAll();renderExamsPage();}catch(e){toast(e.message,'e');}}
+
+// ── GRADE PAPERS ──
+function renderGradePage() {
+  const sel=document.getElementById('grade-exam');
+  const myPub=allExams.filter(e=>e.teacherId===user.id&&e.status==='published');
+  sel.innerHTML='<option value="">— Choose Exam —</option>'+myPub.map(e=>`<option value="${e.id}">${esc(e.title)}</option>`).join('');
+
+  const sSel=document.getElementById('grade-sname');
+  sSel.innerHTML='<option value="">— Select Student —</option>'+allStudents.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
+
+  const pend=allSubs.filter(s=>s.status==='pending'||s.status==='grading');
+  document.getElementById('pend-count').textContent=pend.length;
+  document.getElementById('pend-list').innerHTML=!pend.length?'<div class="text-xs text-dim" style="padding:14px;text-align:center">✓ All caught up</div>':
+    pend.map(s=>`<div class="flex items-c jc-sb" style="padding:9px 0;border-bottom:1px solid var(--border)">
+      <div><div style="font-size:.8rem;font-weight:600">${esc(s.studentName)}</div><div class="text-xs text-muted">${esc(s.examTitle)}</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="openSub('${s.id}')">View</button>
+    </div>`).join('');
+}
+
+function setSheetFile(f) {
+  if (!f) return;
+  pendingSheetFile=f;
+  document.getElementById('sheet-icon').textContent='✅';
+  document.getElementById('sheet-title').textContent=f.name;
+  document.getElementById('sheet-sub').textContent=`${(f.size/1048576).toFixed(2)}MB`;
+  document.getElementById('sheet-zone').style.borderColor='var(--green)';
+  document.getElementById('grade-btn').disabled=false;
+}
+function sheetDrop(e){e.preventDefault();document.getElementById('sheet-zone').classList.remove('drag');setSheetFile(e.dataTransfer.files[0]);}
+
+async function doGrade() {
+  const examId=document.getElementById('grade-exam').value, sname=document.getElementById('grade-sname').value.trim();
+  if (!examId){toast('Select an exam','e');return;}
+  if (!sname){toast('Enter student name','e');return;}
+  if (!pendingSheetFile){toast('Upload answer sheet','e');return;}
+  const btn=document.getElementById('grade-btn'); btn.disabled=true; btn.innerHTML=SPIN+' Grading…';
+  document.getElementById('grade-result').innerHTML='';
+  document.getElementById('grade-status').innerHTML=aiLoad('ML grading in progress — SBERT · TF-IDF · ROUGE-L · OpenCV · AI Model…');
+  try {
+    const fd=new FormData(); fd.append('file',pendingSheetFile); fd.append('examId',examId); fd.append('studentName',sname);
+    const sub=await api.upload('/submissions/upload',fd);
+    allSubs=await api.get('/submissions/');
+    document.getElementById('grade-status').innerHTML='<span class="badge bg-green">✓ Grading complete</span>';
+    renderGradeResult(sub);
+    toast('Graded successfully!','s');
+    renderDash();
+  } catch(e){
+    document.getElementById('grade-status').innerHTML=`<span style="color:var(--red);font-size:.8rem">✗ ${e.message}</span>`;
+    toast(e.message,'e');
+  }
+  finally{btn.disabled=false;btn.innerHTML='⚡ Grade with ML';}
+}
+
+function renderGradeResult(sub) {
+  const pct=sub.percentage||0, {g:gr,c}=grade(pct);
+  const el=document.getElementById('grade-result');
+  el.innerHTML=`<div class="card">
+    <div class="flex items-c jc-sb mb-16">
+      <div><div style="font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:800;color:#fff">${esc(sub.studentName)}</div><div class="text-sm text-muted">${esc(sub.examTitle)}</div></div>
+      <div class="text-right"><div class="mono" style="font-size:2.5rem;font-weight:900;color:${c}">${gr}</div><div class="text-xs text-muted">${sub.totalScore}/${sub.maxScore} · ${pct}%</div></div>
+    </div>
+    <div class="prog-track mb-16"><div class="prog-fill" style="width:${pct}%;background:${progColor(pct)}"></div></div>
+    ${sub.narrative?`<div style="background:var(--bg3);border-radius:var(--rs);padding:12px;margin-bottom:16px;font-size:.8rem;line-height:1.7;color:var(--text2)">${esc(sub.narrative)}</div>`:''}
+    <div style="margin-bottom:8px"><span class="ml-chip">ML: SBERT+TF-IDF+ROUGE-L+Keywords Ensemble</span></div>
+    ${(sub.grades||[]).map((g,i)=>renderAnsCard(g,i,sub.id)).join('')}
+    <div style="margin-top:12px"><button class="btn btn-secondary" onclick="dlReport('${sub.id}')">⬇ Download PDF Report</button></div>
+  </div>`;
+}
+
+function renderAnsCard(g,i,sid) {
+  const pct=g.percentage||0, c=progColor(pct);
+  const bd=g.breakdown||{};
+  return`<div class="ans-card">
+    <div class="ans-head" onclick="toggleCard(this)">
+      <div class="score-ring" style="border-color:${c};color:${c}"><div style="text-align:center"><div style="font-size:.78rem;font-weight:700">${g.marks}</div><div style="font-size:.5rem;color:var(--text3)">/${g.maxMarks}</div></div></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:.82rem">Q${esc(g.questionNumber)} <span class="text-dim text-xs">${esc((g.questionText||'').substring(0,60))}</span></div>
+        <div style="display:flex;gap:5px;margin-top:4px;flex-wrap:wrap">
+          ${Object.entries(bd).map(([k,v])=>`<span class="ml-chip">${k}: ${v}%</span>`).join('')}
+          ${g.hasDiagram?`<span class="badge bg-purple">📐 ${g.diagramScore!=null?'SSIM: '+g.diagramScore+'%':'Diagram'}</span>`:''}
+          ${g.overridden?'<span class="badge bg-gold">Override</span>':''}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span class="text-xs text-dim">${pct}%</span>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openOv('${sid}',${i},${g.maxMarks})">✏</button>
+        <span class="arr" style="color:var(--text3)">▼</span>
+      </div>
+    </div>
+    <div class="ans-body" style="display:none">
+      ${g.studentAnswer?`<div class="mb-12"><div class="text-xs text-dim mb-5">Student's Answer</div><div style="background:var(--bg4);border-radius:var(--rs);padding:11px;font-size:.79rem;line-height:1.7;color:var(--text2)">${esc(g.studentAnswer)}</div></div>`:'<div style="color:var(--red);font-size:.79rem;margin-bottom:10px">No answer provided</div>'}
+      <div class="mb-10"><div class="text-xs text-dim mb-5">AI Feedback</div><div style="font-size:.8rem;line-height:1.7">${esc(g.feedback||'')}</div></div>
+      ${(g.strengths||[]).length?`<div class="mb-8"><div class="text-xs text-dim mb-5">Strengths</div><div>${g.strengths.map(s=>`<span style="background:rgba(5,150,105,.1);color:var(--green);padding:2px 8px;border-radius:4px;font-size:.7rem;margin:2px;display:inline-block">✓ ${esc(s)}</span>`).join('')}</div></div>`:''}
+      ${(g.improvements||[]).length?`<div><div class="text-xs text-dim mb-5">What to Improve</div><div>${g.improvements.map(s=>`<span style="background:rgba(220,38,38,.1);color:var(--red);padding:2px 8px;border-radius:4px;font-size:.7rem;margin:2px;display:inline-block">→ ${esc(s)}</span>`).join('')}</div></div>`:''}
+    </div>
+  </div>`;
+}
+
+// ── Override ──
+function openOv(sid,qi,maxM){ovSubId=sid;ovQIdx=qi;document.getElementById('ov-max').textContent=maxM;document.getElementById('ov-marks').value='';document.getElementById('ov-notes').value='';openModal('modal-ov');}
+
+// fix: wrong id
+document.addEventListener('DOMContentLoaded',()=>{
+  // fix id
+  const ovNote = document.getElementById('ov-note');
+});
+
+async function doOverride(){
+  const marks=+document.getElementById('ov-marks').value, note=document.getElementById('ov-note').value;
+  if (isNaN(marks)||marks<0){toast('Enter valid marks','e');return;}
+  try{const u=await api.patch(`/submissions/${ovSubId}/override`,{questionIndex:ovQIdx,marks,note});closeModal('modal-ov');toast('Override saved','s');}catch(e){toast(e.message,'e');}
+}
+
+async function openSub(sid){
+  currentSid=sid;
+  document.getElementById('modal-sub-title').textContent='Loading…';
+  document.getElementById('modal-sub-body').innerHTML=aiLoad('Loading…');
+  openModal('modal-sub');
+  try{
+    const sub=await api.get(`/submissions/${sid}`);
+    document.getElementById('modal-sub-title').textContent=`${sub.studentName} — ${sub.examTitle}`;
+    const pct=sub.percentage||0,{g:gr,c}=grade(pct);
+    document.getElementById('modal-sub-body').innerHTML=`
+      <div class="flex items-c jc-sb mb-16"><div class="mono">${sub.totalScore}/${sub.maxScore}</div><div class="mono" style="font-size:2rem;font-weight:900;color:${c}">${gr} <span style="font-size:.9rem">${pct}%</span></div></div>
+      <div class="prog-track mb-16"><div class="prog-fill" style="width:${pct}%;background:${progColor(pct)}"></div></div>
+      ${(sub.grades||[]).map((g,i)=>renderAnsCard(g,i,sid)).join('')}`;
+  }catch(e){document.getElementById('modal-sub-body').innerHTML=`<span style="color:var(--red)">${e.message}</span>`;}
+}
+
+async function dlReport(sid){
+  try{
+    const r=await fetch(`${API}/submissions/${sid}/report`,{headers:{Authorization:`Bearer ${Auth.token()}`}});
+    if(!r.ok){toast('Report failed','e');return;}
+    const blob=await r.blob();
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`report_${sid}.pdf`;a.click();
+  }catch(e){toast(e.message,'e');}
+}
+
+// ── ANALYTICS ──
+function loadAnalyticsForExam(eid){
+  navTo('analytics');
+  document.getElementById('anal-exam-sel').value=eid;
+  loadAnalytics();
+}
+
+async function loadAnalytics(){
+  const eid=document.getElementById('anal-exam-sel').value;
+  const cont=document.getElementById('analytics-content');
+  const myEx=allExams.filter(e=>e.teacherId===user.id);
+  const sel=document.getElementById('anal-exam-sel');
+  if(sel.options.length<=1) myEx.forEach(e=>{const o=document.createElement('option');o.value=e.id;o.textContent=e.title;sel.appendChild(o);});
+  if(!eid){cont.innerHTML=empty('📊','Select an exam','Choose an exam from the dropdown');return;}
+  cont.innerHTML=aiLoad('Loading analytics and generating charts…');
+  try{
+    const data=await api.get(`/analytics/exam/${eid}`);
+    if(!data.total){cont.innerHTML=empty('📊','No graded submissions','Grade some papers first');return;}
+    const charts=data.charts||{};
+    const acc=data.mlAccuracy||{};
+    cont.innerHTML=`
+      <div class="stats" style="margin-bottom:20px">
+        <div class="stat" style="--stat-color:var(--blue)"><div class="stat-label">Submissions</div><div class="stat-value">${data.total}</div></div>
+        <div class="stat" style="--stat-color:${grade(data.avg||0).c}"><div class="stat-label">Class Average</div><div class="stat-value">${data.avg}%</div></div>
+        <div class="stat" style="--stat-color:var(--green)"><div class="stat-label">Pass Rate</div><div class="stat-value">${data.passRate}%</div></div>
+        <div class="stat" style="--stat-color:var(--purple)"><div class="stat-label">ML Accuracy</div><div class="stat-value">${acc.mae!=null?'MAE: '+acc.mae:'N/A'}</div><div class="stat-sub">${acc.samples||0} samples · corr: ${acc.correlation||'—'}</div></div>
+      </div>
+      <!-- ML Model accuracy explanation -->
+      <div class="card mb-16" style="background:rgba(124,58,237,.05);border-color:rgba(124,58,237,.2)">
+        <div class="card-title mb-8">🎯 ML Model Performance</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+          <div style="background:var(--bg3);border-radius:var(--rs);padding:12px">
+            <div class="mono" style="font-size:.65rem;color:var(--blue);margin-bottom:4px">SENTENCE-BERT (40%)</div>
+            <div style="font-size:.72rem;color:#fff;margin-bottom:3px">all-MiniLM-L6-v2</div>
+            <div style="font-size:.68rem;color:var(--text2)">Cosine similarity on 384-dim embeddings. Captures semantic meaning beyond vocabulary overlap.</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--rs);padding:12px">
+            <div class="mono" style="font-size:.65rem;color:var(--green);margin-bottom:4px">TF-IDF + ROUGE-L (45%)</div>
+            <div style="font-size:.72rem;color:#fff;margin-bottom:3px">Sklearn TF-IDF + LCS</div>
+            <div style="font-size:.68rem;color:var(--text2)">TF-IDF gives term importance weighting. ROUGE-L finds longest common answer sequences.</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--rs);padding:12px">
+            <div class="mono" style="font-size:.65rem;color:var(--gold);margin-bottom:4px">KMEANS CLUSTERS</div>
+            <div style="font-size:.72rem;color:#fff;margin-bottom:3px">sklearn.cluster.KMeans</div>
+            <div style="font-size:.68rem;color:var(--text2)">Groups students by answer similarity. Reveals copying patterns and shared misconceptions.</div>
+          </div>
+        </div>
+      </div>
+      <div class="chart-grid mb-16">
+        ${charts.grade_distribution?`<div class="card"><div class="card-title mb-10">Grade Distribution</div><img class="chart-img" src="data:image/png;base64,${charts.grade_distribution}"></div>`:''}
+        ${charts.score_histogram?`<div class="card"><div class="card-title mb-10">Score Histogram</div><img class="chart-img" src="data:image/png;base64,${charts.score_histogram}"></div>`:''}
+      </div>
+      ${charts.heatmap?`<div class="card mb-16"><div class="card-title mb-4">🔥 Performance Heatmap — Student × Question</div><div class="text-xs text-muted mb-10">Green = high score, Red = low score. Reveals which questions entire class struggled with vs individual failures.</div><img class="chart-img" src="data:image/png;base64,${charts.heatmap}"></div>`:''}
+      <div class="card"><div class="card-title mb-12">Per-Question Class Average</div>
+        ${Object.entries(data.questionAvgs||{}).map(([q,avg])=>`<div class="flex items-c gap-10" style="margin-bottom:10px">
+          <span class="mono text-xs" style="width:40px;color:var(--blue)">${esc(q)}</span>
+          <div class="prog-track" style="flex:1"><div class="prog-fill" style="width:${avg}%;background:${progColor(avg)}"></div></div>
+          <span class="mono text-xs" style="color:${progColor(avg)}">${avg}%</span>
+        </div>`).join('')}
+      </div>`;
+  }catch(e){cont.innerHTML=`<span style="color:var(--red)">${e.message}</span>`;}
+}
+
+// ── Nav hooks ──
+const origNav=window.navTo;
+window.navTo=function(id){
+  origNav(id);
+  if(id==='create'&&!currentEditingExamId){
+    document.getElementById('page-create').querySelector('h1').textContent = 'Create Exam';
+    document.getElementById('ex-title').value = '';
+    document.getElementById('ex-subject').value = '';
+    document.getElementById('ref-icon').textContent='📄';
+    document.getElementById('ref-title').textContent='Drop reference answer paper';
+    document.getElementById('ref-status').innerHTML='';
+    qItems=[]; renderQList(); pendingRefFile=null;
+  }
+  if(id==='exams')renderExamsPage();
+  else if(id==='grade')renderGradePage();
+  else if(id==='analytics'){const myEx=allExams.filter(e=>e.teacherId===user.id);const sel=document.getElementById('anal-exam-sel');if(sel&&sel.options.length<=1)myEx.forEach(e=>{const o=document.createElement('option');o.value=e.id;o.textContent=e.title;sel.appendChild(o);});}
+};
+</script>
+</body>
+</html>

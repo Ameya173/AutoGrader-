@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AutoGrader— Smart Exam Grader</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+
+<body class="auth-page">
+
+  <div class="auth-box">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">🎓</div>
+      <h1>Autograder<span>AI</span></h1>
+      <p>ML-POWERED EXAM EVALUATION</p>
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="tab('login')">Sign In</button>
+        <button class="auth-tab" onclick="tab('register')">Register</button>
+      </div>
+
+      <div id="err" class="err hidden"></div>
+
+      <!-- LOGIN -->
+      <div id="panel-login">
+        <div class="field"><label>Email</label><input type="email" id="l-email" placeholder="you@college.edu"></div>
+        <div class="field"><label>Password</label><input type="password" id="l-pass" placeholder="••••••••"></div>
+        <button class="btn btn-primary w-full btn-lg" id="l-btn" onclick="doLogin()">Sign In →</button>
+        <div class="divider"><span>demo accounts</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn btn-secondary" onclick="demo('teacher')">👨‍🏫 Demo Teacher</button>
+          <button class="btn btn-secondary" onclick="demo('student')">🎓 Demo Student</button>
+        </div>
+      </div>
+
+      <!-- REGISTER -->
+      <div id="panel-register" class="hidden">
+        <div class="role-row">
+          <button class="role-btn active" id="r-t" onclick="setRole('teacher')"><span
+              style="font-size:1.4rem">👨‍🏫</span><span>Teacher</span></button>
+          <button class="role-btn" id="r-s" onclick="setRole('student')"><span
+              style="font-size:1.4rem">🎓</span><span>Student</span></button>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Full Name</label><input id="r-name" placeholder="Your name"></div>
+          <div class="field"><label>Email</label><input type="email" id="r-email" placeholder="you@college.edu"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Password</label><input type="password" id="r-pass" placeholder="Min 6 chars"></div>
+          <div class="field"><label>Subject</label><input id="r-sub" placeholder="e.g. Computer Science"></div>
+        </div>
+        <button class="btn btn-primary w-full btn-lg" id="r-btn" onclick="doRegister()">Create Account →</button>
+      </div>
+    </div>
+
+    <!-- ML Models info -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:20px">
+      <div
+        style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);padding:10px;text-align:center">
+        <div style="font-size:.95rem;margin-bottom:3px">🧠</div>
+        <div style="font-size:.65rem;font-weight:700;color:#fff">Sentence-BERT</div>
+        <div style="font-size:.6rem;color:var(--text3)">Semantic similarity</div>
+      </div>
+      <div
+        style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);padding:10px;text-align:center">
+        <div style="font-size:.95rem;margin-bottom:3px">👁</div>
+        <div style="font-size:.65rem;font-weight:700;color:#fff">OpenCV SSIM</div>
+        <div style="font-size:.6rem;color:var(--text3)">Diagram comparison</div>
+      </div>
+      <div
+        style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);padding:10px;text-align:center">
+        <div style="font-size:.95rem;margin-bottom:3px">📊</div>
+        <div style="font-size:.65rem;font-weight:700;color:#fff">KMeans Clusters</div>
+        <div style="font-size:.6rem;color:var(--text3)">Answer grouping</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://localhost:5000/api';
+    let role = 'teacher';
+
+    function tab(t) {
+      document.querySelectorAll('.auth-tab').forEach((el, i) => el.classList.toggle('active', t === (i === 0 ? 'login' : 'register')));
+      document.getElementById('panel-login').classList.toggle('hidden', t !== 'login');
+      document.getElementById('panel-register').classList.toggle('hidden', t !== 'register');
+      document.getElementById('err').classList.add('hidden');
+    }
+    function setRole(r) {
+      role = r;
+      document.getElementById('r-t').classList.toggle('active', r === 'teacher');
+      document.getElementById('r-s').classList.toggle('active', r === 'student');
+    }
+    function showErr(msg) { const e = document.getElementById('err'); e.textContent = msg; e.classList.remove('hidden'); setTimeout(() => e.classList.add('hidden'), 4000); }
+
+    async function doLogin() {
+      const email = document.getElementById('l-email').value.trim(), pw = document.getElementById('l-pass').value;
+      if (!email || !pw) { showErr('Email and password required'); return; }
+      const btn = document.getElementById('l-btn'); btn.disabled = true; btn.textContent = 'Signing in…';
+      try {
+        const r = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pw }) });
+        const d = await r.json(); if (!r.ok) { showErr(d.error || 'Login failed'); return; }
+        localStorage.setItem('examai_token', d.token); localStorage.setItem('examai_user', JSON.stringify(d.user));
+        location.href = d.user.role === 'teacher' ? 'pages/teacher.html' : 'pages/student.html';
+      } catch (e) { showErr('Cannot connect to backend. Run: python app.py'); }
+      finally { btn.disabled = false; btn.textContent = 'Sign In →'; }
+    }
+
+    async function doRegister() {
+      const name = document.getElementById('r-name').value.trim(), email = document.getElementById('r-email').value.trim(), pw = document.getElementById('r-pass').value, sub = document.getElementById('r-sub').value.trim();
+      if (!name || !email || !pw) { showErr('All fields required'); return; }
+      const btn = document.getElementById('r-btn'); btn.disabled = true; btn.textContent = 'Creating…';
+      try {
+        const r = await fetch(`${API}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, email, password: pw, role, subject: sub }) });
+        const d = await r.json(); if (!r.ok) { showErr(d.error || 'Failed'); return; }
+        localStorage.setItem('examai_token', d.token); localStorage.setItem('examai_user', JSON.stringify(d.user));
+        location.href = d.user.role === 'teacher' ? 'pages/teacher.html' : 'pages/student.html';
+      } catch (e) { showErr('Cannot connect to backend'); }
+      finally { btn.disabled = false; btn.textContent = 'Create Account →'; }
+    }
+
+    async function demo(r) {
+      const email = r === 'teacher' ? 'teacher@demo.com' : 'student@demo.com';
+      try {
+        const res = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'demo123' }) });
+        const d = await res.json(); if (!res.ok) { showErr(d.error || 'Demo failed'); return; }
+        localStorage.setItem('examai_token', d.token); localStorage.setItem('examai_user', JSON.stringify(d.user));
+        location.href = d.user.role === 'teacher' ? 'pages/teacher.html' : 'pages/student.html';
+      } catch (e) { showErr('Backend not running. Start: python app.py'); }
+    }
+
+    const t = localStorage.getItem('examai_token'), u = JSON.parse(localStorage.getItem('examai_user') || 'null');
+    if (t && u) location.href = u.role === 'teacher' ? 'pages/teacher.html' : 'pages/student.html';
+  </script>
+</body>
+
+</html>

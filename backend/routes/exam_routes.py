@@ -1,0 +1,166 @@
+"""Exam Routes"""
+import os, uuid
+from flask import Blueprint, request, jsonify, g
+from werkzeug.utils import secure_filename
+from utils.local_db import create_exam, get_exam, update_exam, delete_exam, get_teacher_exams, get_published_exams, get_exam_submissions
+from utils.auth import require_auth, require_teacher
+
+exam_bp = Blueprint('exams', __name__)
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__),'..','uploads','reference')
+ALLOWED = {'pdf','png','jpg','jpeg','webp'}
+
+def allowed(fn): return '.' in fn and fn.rsplit('.',1)[1].lower() in ALLOWED
+
+@exam_bp.route('/', methods=['GET'])
+@require_auth
+def list_exams():
+    if g.role == 'teacher':
+        return jsonify(get_teacher_exams(g.uid))
+    return jsonify(get_published_exams())
+
+@exam_bp.route('/<eid>', methods=['GET'])
+@require_auth
+def get_one(eid):
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if g.role=='student' and exam.get('status')!='published': return jsonify({'error':'Not available'}),403
+    return jsonify(exam)
+
+@exam_bp.route('/', methods=['POST'])
+@require_auth
+@require_teacher
+def create():
+    d = request.json or {}
+    if not d.get('title') or not d.get('subject'):
+        return jsonify({'error':'Title and subject required'}),400
+    questions = d.get('questions',[])
+    for i,q in enumerate(questions):
+        q.setdefault('id', str(uuid.uuid4())[:6])
+        q.setdefault('number', str(i+1))
+        for j,sq in enumerate(q.get('subQuestions',[])):
+            sq.setdefault('id', str(uuid.uuid4())[:6])
+            sq.setdefault('number', f"{i+1}{chr(97+j)}")
+    exam = create_exam({
+        'title': d['title'], 'subject': d['subject'],
+        'duration': d.get('duration',60),
+        'totalMarks': d.get('totalMarks',100),
+        'instructions': d.get('instructions',''),
+        'questions': questions,
+        'teacherId': g.uid, 'teacherName': g.user.get('name',''),
+        'referenceFile': None,
+        'referenceAnswers': [],
+        'gradingMode': d.get('gradingMode','manual'),  # 'manual' or 'reference'
+        'status': d.get('status','draft'),
+    })
+    return jsonify(exam),201
+
+@exam_bp.route('/<eid>', methods=['PUT'])
+@require_auth
+@require_teacher
+def update(eid):
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
+    d = request.json or {}
+    allowed_fields = ['title','subject','duration','totalMarks','instructions','questions','status','gradingMode']
+    updates = {k:d[k] for k in allowed_fields if k in d}
+    return jsonify(update_exam(eid, updates))
+
+@exam_bp.route('/<eid>/publish', methods=['POST'])
+@require_auth
+@require_teacher
+def publish(eid):
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
+    return jsonify(update_exam(eid, {'status':'published'}))
+
+@exam_bp.route('/<eid>', methods=['DELETE'])
+@require_auth
+@require_teacher
+def remove(eid):
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
+    delete_exam(eid)
+    return jsonify({'message':'Deleted'})
+
+# ── Upload reference answer paper ──
+@exam_bp.route('/<eid>/reference', methods=['POST'])
+@require_auth
+@require_teacher
+def upload_reference(eid):
+    """
+    Teacher uploads ONE perfect answer paper.
+    Gemini extracts Q&A from it → becomes the reference for grading all students.
+    """
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
+    if 'file' not in request.files: return jsonify({'error':'No file'}),400
+    f = request.files['file']
+    if not allowed(f.filename): return jsonify({'error':'Invalid file type'}),400
+
+    fname = f"{eid}_{uuid.uuid4().hex[:6]}.{f.filename.rsplit('.',1)[1].lower()}"
+    path = os.path.join(UPLOAD_DIR, fname)
+    f.save(path)
+
+    # Extract Q&A using Gemini with enhanced v1/retry reliability
+    from ml.gemini_service import extract_questions_from_paper
+    try:
+        extracted = extract_questions_from_paper(path)
+        if not extracted:
+            return jsonify({'error': 'AI failed to extract questions. Please check the paper or your Gemini key.'}), 400
+    except Exception as e:
+        return jsonify({'error': f'Gemini Error: {str(e)}'}), 400
+
+    updates = {
+        'referenceFile': fname,
+        'referenceAnswers': extracted,
+        'gradingMode': 'reference'
+    }
+
+    # If exam has no questions (reference-only flow), populate them
+    if not exam.get('questions') or len(exam.get('questions')) == 0:
+        print(f"DEBUG: Exam {eid} has no questions, syncing {len(extracted)} from reference paper")
+        converted_questions = []
+        total_marks = 0
+        for i, ex_q in enumerate(extracted):
+            # Ensure marks is a number
+            try: m = float(ex_q.get('marks', 0))
+            except: m = 5.0
+            
+            total_marks += m
+            converted_questions.append({
+                'id': uuid.uuid4().hex[:6],
+                'number': ex_q.get('number', str(i+1)),
+                'text': ex_q.get('text', f"Question {i+1}"),
+                'marks': m,
+                'modelAnswer': ex_q.get('answerText', ''),
+                'keywords': ex_q.get('keywords', []),
+                'hasDiagram': ex_q.get('hasDiagram', False),
+                'subQuestions': []
+            })
+        updates['questions'] = converted_questions
+        updates['totalMarks'] = total_marks
+    else:
+        # If questions exist, try to match reference answers to them
+        print(f"DEBUG: Exam {eid} already has questions, matching reference answers only")
+
+    updated_exam = update_exam(eid, updates)
+    return jsonify({
+        'message': f'Processed {len(extracted)} questions from reference paper',
+        'questions': updated_exam.get('questions', []),
+        'totalMarks': updated_exam.get('totalMarks', 0),
+        'file': fname
+    })
+
+@exam_bp.route('/<eid>/submissions', methods=['GET'])
+@require_auth
+@require_teacher
+def exam_subs(eid):
+    exam = get_exam(eid)
+    if not exam or exam.get('teacherId') != g.uid:
+        return jsonify({'error':'Not found'}),404
+    subs = get_exam_submissions(eid)
+    return jsonify(subs)
