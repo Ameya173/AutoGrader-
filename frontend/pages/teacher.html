@@ -83,23 +83,12 @@
       </div>
     </div>
 
-    <!-- Right: Reference paper upload -->
-    <div>
-      <div class="card" style="position:sticky;top:24px">
-        <div class="card-title mb-8">📄 OR: Upload Reference Answer Paper</div>
+    <!-- Right: Reference paper uploads -->
+    <div style="display:flex;flex-direction:column;gap:16px;position:sticky;top:10px">
+      <!-- Option 1: Existing Reference Answer Paper -->
+      <div class="card">
+        <div class="card-title mb-8">📄 OPTION A: Reference Answer Paper</div>
         <div class="card-sub mb-16" style="line-height:1.6">Upload <strong>one perfectly answered paper</strong> — AI extracts all Q&A automatically. All student sheets will be graded against this reference.</div>
-
-        <div style="background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.15);border-radius:var(--rs);padding:12px;margin-bottom:14px">
-          <div style="font-size:.72rem;font-weight:700;color:var(--blue);margin-bottom:6px">🚀 USP: Reference-Based Grading</div>
-          <div style="font-size:.7rem;color:var(--text2);line-height:1.7">
-            Instead of manually setting model answers, upload ONE correct paper.<br>
-            → AI extracts questions + ideal answers<br>
-            → SBERT compares semantic meaning<br>
-            → OpenCV extracts + compares diagrams<br>
-            → KMeans clusters similar answers to detect copying
-          </div>
-        </div>
-
 
         <div class="drop-zone" id="ref-zone" onclick="document.getElementById('ref-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="refDrop(event)">
           <input type="file" id="ref-input" accept=".pdf,.png,.jpg,.jpeg,.webp" onchange="uploadRef(this.files[0])">
@@ -108,6 +97,29 @@
           <p id="ref-sub" style="font-size:.75rem;color:var(--text2)">PDF · PNG · JPG — AI will extract all answers</p>
         </div>
         <div id="ref-status" class="mt-12"></div>
+      </div>
+
+      <!-- Option 2: Study Material (PDF/PPT/Text) -->
+      <div class="card" style="border-color:rgba(37,99,235,.3);background:linear-gradient(135deg,rgba(37,99,235,.03),transparent)">
+        <div class="card-title mb-8" style="color:var(--blue)">📚 OPTION B: Study Material / Reference Content</div>
+        <div class="card-sub mb-16" style="line-height:1.6">Upload <strong>PDFs, PPTXs, or Text files</strong> containing the answers. AI will refer to these documents to grade student answers more accurately.</div>
+
+        <div class="drop-zone" id="material-zone" style="border-style:dashed;border-color:var(--blue)" onclick="document.getElementById('material-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="materialDrop(event)">
+          <input type="file" id="material-input" accept=".pdf,.pptx,.ppt,.txt" multiple onchange="[...this.files].forEach(f=>uploadMaterial(f))">
+          <div class="drop-icon" id="material-icon" style="color:var(--blue)">📚</div>
+          <h3 id="material-title" style="font-size:.88rem;font-weight:600;margin-bottom:4px;color:var(--blue)">Drop study material here</h3>
+          <p id="material-sub" style="font-size:.75rem;color:var(--text2)">PDF · PPTX · TXT — AI will use for context</p>
+        </div>
+        <div id="material-status" class="mt-12"></div>
+        <div id="material-list" class="mt-12" style="display:flex;flex-direction:column;gap:5px"></div>
+      </div>
+
+      <div class="card" style="background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.15);border-radius:var(--rs);padding:12px">
+        <div style="font-size:.72rem;font-weight:700;color:var(--blue);margin-bottom:6px">🚀 AI-Assisted Grading</div>
+        <div style="font-size:.7rem;color:var(--text2);line-height:1.7">
+          <b>Option A</b>: Use a perfectly marked answer paper as a primary key.<br>
+          <b>Option B</b>: Upload supplementary material for a broader knowledge base.
+        </div>
       </div>
     </div>
   </div>
@@ -198,7 +210,7 @@ initSidebar();
 const user = Auth.user();
 document.getElementById('dash-greet').textContent = `Good ${['morning','afternoon','evening'][[...new Array(24)].map((_,h)=>h<12?0:h<17?1:2)[new Date().getHours()]]}, ${user.name.split(' ')[0]}`;
 
-let allExams=[], allSubs=[], allStudents=[], pendingSheetFile=null, pendingRefFile=null, currentSid=null, ovSubId=null, ovQIdx=null, currentEditingExamId=null;
+let allExams=[], allSubs=[], allStudents=[], pendingSheetFile=null, pendingRefFile=null, pendingMaterials=[], currentSid=null, ovSubId=null, ovQIdx=null, currentEditingExamId=null;
 let qItems = []; // question builder state
 
 // ── Load ──
@@ -276,6 +288,27 @@ function renderQList() {
           <input type="checkbox" ${q.hasDiagram?'checked':''} onchange="qItems[${qi}].hasDiagram=this.checked"> Diagram
         </label>
       </div>
+
+      <!-- Rubrics / Assessment Parameters -->
+      ${(q.assessmentParameters && q.assessmentParameters.length) ? `
+        <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--rs);padding:10px;margin-bottom:8px">
+          <div style="font-size:.65rem;font-weight:700;color:var(--blue);margin-bottom:6px;text-transform:uppercase">Marking Rubric (Generated by AI)</div>
+          ${q.assessmentParameters.map((ap, api) => `
+            <div style="display:flex;gap:10px;margin-bottom:4px;align-items:center">
+              <input style="flex:1;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text2);font-size:.72rem;outline:none" value="${esc(ap.parameter)}" oninput="qItems[${qi}].assessmentParameters[${api}].parameter=this.value">
+              <input type="number" style="width:35px;background:transparent;border:none;color:var(--gold);font-size:.72rem;text-align:right" value="${ap.weight}" oninput="qItems[${qi}].assessmentParameters[${api}].weight=+this.value">
+              <span style="font-size:.65rem;color:var(--text3)">M</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      <!-- Sources -->
+      ${(q.relevantSources && q.relevantSources.length) ? `
+        <div style="font-size:.7rem;color:var(--text3);margin-bottom:8px">
+          📚 Sources: ${q.relevantSources.map(s => `<span class="badge bg-gray" style="font-size:.62rem;margin-right:4px">${esc(s)}</span>`).join('')}
+        </div>
+      ` : ''}
       ${q.subQuestions.map((sq,si)=>`<div class="sub-q">
         <div style="display:flex;align-items:center;gap:8px">
           ${sq.isOr?'<span class="or-label">OR</span>':''}
@@ -312,6 +345,20 @@ async function saveExam(status) {
   try {
     const data = {title,subject,
       totalMarks:+document.getElementById('ex-marks').value||100, instructions:document.getElementById('ex-inst').value, questions, status};
+    
+    // Ensure all rubrics and sources are bundled if available
+    data.questions = qItems.map((q,i)=>({
+      number: String(i+1), text:q.text, marks:q.marks,
+      keywords: (q.keywords||'').split(',').map(k=>k.trim()).filter(Boolean),
+      hasDiagram:q.hasDiagram, modelAnswer:q.modelAnswer||'',
+      relevantSources: q.relevantSources || [],
+      assessmentParameters: q.assessmentParameters || [],
+      subQuestions: (q.subQuestions||[]).map((sq,j)=>({
+        number:`${i+1}${String.fromCharCode(97+j)}`, 
+        text:sq.text, marks:sq.marks, isOr:sq.isOr, hasDiagram:sq.hasDiagram, modelAnswer:sq.modelAnswer||''
+      }))
+    }));
+
     let exam;
     if (currentEditingExamId) {
       exam = await api.put(`/exams/${currentEditingExamId}`, data);
@@ -323,6 +370,10 @@ async function saveExam(status) {
     if (pendingRefFile) {
       toast('Uploading reference paper…','i');
       await uploadRef(pendingRefFile, exam.id);
+    }
+    if (pendingMaterials.length > 0) {
+      toast('Uploading study materials…','i');
+      for (const f of pendingMaterials) await uploadMaterial(f, exam.id);
     }
 
     await loadAll();
@@ -344,11 +395,13 @@ function editExam(id) {
   document.getElementById('ex-marks').value = e.totalMarks;
   document.getElementById('ex-inst').value = e.instructions || '';
   
-  // Reset ref UI
-  document.getElementById('ref-icon').textContent='📄';
-  document.getElementById('ref-title').textContent='Drop reference answer paper';
-  document.getElementById('ref-status').innerHTML='';
-  pendingRefFile = null;
+  // Reset material UI
+  document.getElementById('material-icon').textContent='📚';
+  document.getElementById('material-title').textContent='Drop study material here';
+  document.getElementById('material-status').innerHTML='';
+  document.getElementById('material-list').innerHTML='';
+  pendingMaterials = [];
+  if (e.studyMaterial) renderMaterials(e.studyMaterial);
 
   qItems = (e.questions||[]).map(q=>({
     text:q.text, marks:q.marks, modelAnswer:q.modelAnswer||'', 
@@ -411,6 +464,71 @@ async function uploadRef(file, forceId=null) {
   }
 }
 function refDrop(e){e.preventDefault();document.getElementById('ref-zone').classList.remove('drag');uploadRef(e.dataTransfer.files[0]);}
+
+// ── STUDY MATERIAL ──
+async function uploadMaterial(file, forceId=null) {
+  if (!file) return;
+  const examId = forceId || currentEditingExamId;
+  
+  if (!examId) {
+    pendingMaterials.push(file);
+    document.getElementById('material-icon').textContent='📎';
+    document.getElementById('material-title').textContent=`${pendingMaterials.length} file(s) ready`;
+    document.getElementById('material-status').innerHTML='<span class="badge bg-gold">Ready to upload on save</span>';
+    return;
+  }
+
+  const mIcon = document.getElementById('material-icon');
+  const mTitle = document.getElementById('material-title');
+  const mStatus = document.getElementById('material-status');
+
+  mIcon.textContent='⏳';
+  mTitle.textContent='Processing...';
+  mStatus.innerHTML=aiLoad(`Extracting text from ${esc(file.name)}...`);
+  
+  try {
+    const fd=new FormData(); fd.append('file',file);
+    const res = await api.upload(`/exams/${examId}/material`, fd);
+    mIcon.textContent='📚';
+    mTitle.textContent='Drop study material here';
+    mStatus.innerHTML=`<span class="badge bg-green">✓ Material Added</span>`;
+    toast('Reference material processed!','s');
+    renderMaterials(res.materials);
+    await loadAll();
+  } catch(e){
+    mIcon.textContent='❌';
+    mStatus.innerHTML=`<span style="color:var(--red);font-size:.8rem">✗ ${e.message}</span>`;
+    toast(e.message,'e');
+  }
+}
+
+function renderMaterials(list) {
+  const el = document.getElementById('material-list');
+  if (!list || !list.length) { el.innerHTML=''; return; }
+  el.innerHTML = list.map(m => `
+    <div style="background:var(--bg3);padding:8px 12px;border-radius:var(--rs);display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border)">
+      <div style="font-size:.75rem;color:var(--text2);display:flex;align-items:center;gap:6px">
+        <span>📄</span> <span style="font-weight:600">${esc(m.filename)}</span>
+      </div>
+      <button onclick="deleteMaterial('${m.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:2px 5px">✕</button>
+    </div>
+  `).join('');
+}
+
+async function deleteMaterial(mid) {
+  if (!currentEditingExamId) return;
+  try {
+    await api.delete(`/exams/${currentEditingExamId}/material/${mid}`);
+    toast('Material removed','i');
+    const exam = allExams.find(x=>x.id===currentEditingExamId);
+    if (exam && exam.studyMaterial) {
+      exam.studyMaterial = exam.studyMaterial.filter(m => m.id !== mid);
+      renderMaterials(exam.studyMaterial);
+    }
+  } catch(e) { toast(e.message,'e'); }
+}
+
+function materialDrop(e){e.preventDefault();document.getElementById('material-zone').classList.remove('drag');uploadMaterial(e.dataTransfer.files[0]);}
 
 // ── MY EXAMS ──
 function renderExamsPage() {

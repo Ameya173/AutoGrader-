@@ -106,7 +106,7 @@ def upload_reference(eid):
     f.save(path)
 
     # Extract Q&A using Gemini with enhanced v1/retry reliability
-    from ml.gemini_service import extract_questions_from_paper
+    from ml.gemini_service import extract_questions_from_paper, extract_text_from_pdf, extract_text_from_pptx
     try:
         extracted = extract_questions_from_paper(path)
         if not extracted:
@@ -154,6 +154,73 @@ def upload_reference(eid):
         'totalMarks': updated_exam.get('totalMarks', 0),
         'file': fname
     })
+
+# ── Upload Study Material / Reference Content ──
+@exam_bp.route('/<eid>/material', methods=['POST'])
+@require_auth
+@require_teacher
+def upload_material(eid):
+    """
+    Teacher uploads study material (PDF, PPT, TXT).
+    Extracted text is stored in the exam to guide AI grading.
+    """
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
+    if 'file' not in request.files: return jsonify({'error':'No file'}),400
+    
+    f = request.files['file']
+    ext = f.filename.rsplit('.', 1)[1].lower() if '.' in f.filename else ''
+    if ext not in {'pdf', 'pptx', 'ppt', 'txt'}:
+        return jsonify({'error': 'Unsupported file type. Use PDF, PPTX, or TXT.'}), 400
+
+    fname = f"material_{eid}_{uuid.uuid4().hex[:4]}.{ext}"
+    path = os.path.join(UPLOAD_DIR, fname)
+    f.save(path)
+
+    from ml.gemini_service import extract_text_from_pdf, extract_text_from_pptx
+    text = ""
+    if ext == 'pdf':
+        text = extract_text_from_pdf(path)
+    elif ext in {'pptx', 'ppt'}:
+        text = extract_text_from_pptx(path)
+    elif ext == 'txt':
+        with open(path, 'r', encoding='utf-8', errors='ignore') as tf:
+            text = tf.read()
+
+    if not text:
+        return jsonify({'error': 'Failed to extract text from file or file is empty.'}), 400
+
+    # Append to studyMaterial list
+    materials = exam.get('studyMaterial', [])
+    materials.append({
+        'id': uuid.uuid4().hex[:4],
+        'filename': f.filename,
+        'storageName': fname,
+        'text': text[:50000] # Limit to 50k chars per file to save space, AI usually doesn't need more for context
+    })
+    
+    update_exam(eid, {'studyMaterial': materials})
+    return jsonify({
+        'message': f'Material "{f.filename}" uploaded and processed.',
+        'materials': [{'id': m['id'], 'filename': m['filename']} for m in materials]
+    })
+
+@exam_bp.route('/<eid>/material/<mid>', methods=['DELETE'])
+@require_auth
+@require_teacher
+def delete_material(eid, mid):
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
+    
+    materials = exam.get('studyMaterial', [])
+    new_materials = [m for m in materials if m['id'] != mid]
+    if len(new_materials) == len(materials):
+        return jsonify({'error': 'Material not found'}), 404
+        
+    update_exam(eid, {'studyMaterial': new_materials})
+    return jsonify({'message': 'Material removed'})
 
 @exam_bp.route('/<eid>/submissions', methods=['GET'])
 @require_auth

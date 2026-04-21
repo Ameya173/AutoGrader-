@@ -42,7 +42,7 @@ def too_large(e): return jsonify({'error':'File too large (max 30MB)'}), 413
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT',5000))
-    print(f"\n🚀 ExamAI Backend → http://localhost:{port}")
-    print(f"   Gemini: {'✓' if os.getenv('GEMINI_API_KEY') else '✗ Missing GEMINI_API_KEY'}")
-    print(f"   ML Models: SBERT · TF-IDF · ROUGE-L · Keywords · OpenCV · KMeans\n")
+    print(f"\n[SERVER] ExamAI Backend -> http://localhost:{port}")
+    print(f"   Gemini: {'[OK]' if os.getenv('GEMINI_API_KEY') else '[MISSING] GEMINI_API_KEY'}")
+    print(f"   ML Models: SBERT, TF-IDF, ROUGE-L, Keywords, OpenCV, KMeans\n")
     app.run(host='0.0.0.0', port=port, debug=True)

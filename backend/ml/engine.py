@@ -107,7 +107,7 @@ def ensemble_score(student_ans, ref_ans, keywords=None, weights=None):
     rl  = rouge_l(student_ans, ref_ans)
     kw  = keyword_coverage(student_ans, keywords or [])
 
-    w = weights or {'sbert':0.60,'tfidf':0.20,'rouge_l':0.10,'keywords':0.10}
+    w = weights or {'sbert':0.30,'tfidf':0.35,'rouge_l':0.15,'keywords':0.20}
     final = w['sbert']*sb + w['tfidf']*tf + w['rouge_l']*rl + w['keywords']*kw
 
     return {

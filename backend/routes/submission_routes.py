@@ -6,7 +6,7 @@ from utils.local_db import (create_submission, get_submission, update_submission
                              get_student_submissions, get_exam_submissions, get_exam, get_user)
 from utils.auth import require_auth, require_teacher, require_student
 from ml.engine import ensemble_score, extract_diagrams_from_image, diagram_similarity, compute_percentile, detect_weaknesses
-from ml.gemini_service import extract_answer_sheet, grade_answer_feedback, generate_student_report
+from ml.gemini_service import extract_answer_sheet, grade_batch_feedback, generate_student_report
 from ml.report_gen import generate_report
 
 sub_bp = Blueprint('submissions', __name__)
@@ -102,21 +102,61 @@ def upload_and_grade():
         else:
             flat_questions.append(q)
 
-    # Step 1: OCR answer extraction
+    # Step 1: Accurate OCR Extraction
     from ml.gemini_service import _clean_qnum
     try:
         extracted = extract_answer_sheet(fpath, flat_questions)
+        ans_map = {_clean_qnum(a['questionNumber']): a for a in extracted} if extracted else {}
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
-        
-    # Store normalized keys for robust matching
-    ans_map = {_clean_qnum(a['questionNumber']): a for a in extracted} if extracted else {}
+        return jsonify({'error': f"OCR Extraction Failed: {str(e)}"}), 400
 
-    # Step 2: Extract diagrams from student sheet
+    # Step 2: Extract diagrams (Local OpenCV)
     diag_dir = os.path.join(SUB_DIR, f"diags_{fname.split('.')[0]}")
     student_diagrams = extract_diagrams_from_image(fpath, diag_dir, prefix='student')
 
-    # Step 3: Grade each question
+    # Step 3: Grade the Paper (Batch Process to avoid 5 RPM / 20 RPD limits)
+    # 1 Student = 2 API calls total (1 OCR + 1 Batch Grade)
+    
+    # 3a. Wait for Rate Limit reset (Safe for 1.5-flash users)
+    import time
+    print("DEBUG: Waiting 5s to ensure API stability...")
+    time.sleep(5)
+
+    # 3b. Prepare data for Batch Grade
+    batch_input = []
+    study_material_text = "\n\n".join([m.get('text', '') for m in exam.get('studyMaterial', [])])
+
+    for q in flat_questions:
+        qnum_raw = q.get('number','?')
+        qnum_clean = _clean_qnum(qnum_raw)
+        
+        ans_entry = ans_map.get(qnum_clean, {})
+        student_ans = ans_entry.get('answerText','')
+        
+        ref_entry = next((r for r in ref_answers if _clean_qnum(r.get('number')) == qnum_clean), {})
+        ref_ans = ref_entry.get('answerText', q.get('modelAnswer',''))
+        
+        batch_input.append({
+            'number': qnum_raw,
+            'text': q.get('text',''),
+            'marks': q.get('marks', 5),
+            'modelAnswer': ref_ans,
+            'studentAnswer': student_ans
+        })
+
+    # 3c. One shot for all feedback + report
+    exam_title = exam.get('title', 'Exam')
+    try:
+        ai_payload = grade_batch_feedback(student_name, exam_title, batch_input, study_material=study_material_text)
+        ai_grades = ai_payload.get('grades', [])
+        narrative = ai_payload.get('overallNarrative', f"Assessment for {student_name} is complete.")
+        ai_map = {_clean_qnum(r.get('number')): r for r in ai_grades}
+    except Exception as e:
+        print(f"DEBUG: Batch AI Grading Failed: {e}")
+        ai_map = {}
+        narrative = "AI Evaluation hit a temporary server bottleneck. Marks were calculated based on reference keys."
+
+    # 3d. Final Scoring & Merging
     grades = []
     total_score = 0
     max_score = 0
@@ -127,20 +167,17 @@ def upload_and_grade():
         max_m = q.get('marks', 5)
         max_score += max_m
 
-        # Find student answer using cleaned key
         ans_entry = ans_map.get(qnum_clean, {})
-        student_ans = ans_entry.get('answerText','') if ans_entry else ''
-
-        # Find reference answer - use cleaned IDs for robust matching
+        student_ans = ans_entry.get('answerText','')
+        
         ref_entry = next((r for r in ref_answers if _clean_qnum(r.get('number')) == qnum_clean), {})
         ref_ans = ref_entry.get('answerText', q.get('modelAnswer',''))
-        keywords = q.get('keywords', [])
 
-        # ML Ensemble score
-        ml = ensemble_score(student_ans, ref_ans, keywords)
+        # Local ML Score (Reliable base)
+        ml = ensemble_score(student_ans, ref_ans, q.get('keywords',[]))
         ml_score = ml['final']
-
-        # Diagram comparison if needed
+        
+        # Diagram comparison (Optional boost)
         diag_score = None
         if q.get('hasDiagram') and student_diagrams:
             ref_diag = ref_entry.get('diagramPath','')
@@ -150,22 +187,17 @@ def upload_and_grade():
                 diag_score = best
                 ml_score = ml_score * 0.7 + diag_score * 0.3
 
-        # Gemini feedback (Higher Weight for qualitative context)
-        # Note: Suggested score is now 0-100 from Gemini
-        feedback_data = grade_answer_feedback(
-            q.get('text',''), ref_ans, student_ans, max_m or 5, ml_score)
+        # AI Score
+        ai_res = ai_map.get(qnum_clean, {})
+        gemini_pct = float(ai_res.get('suggestedScore', ml_score))
 
-        # gemini_pct is returned as 0-100. Fallback to ml_score directly because ml_score is already 0-100.
-        gemini_pct = float(feedback_data.get('suggestedScore', ml_score))
+        # Weighting: 50% AI, 50% ML (Maximum Rigor)
+        final_pct = min(100, max(0, (ml_score * 0.50 + gemini_pct * 0.50)))
         
-        # Weight AI higher (80%) and ML (20%) for a balanced assessment without extra multipliers
-        final_pct = min(100, max(0, (ml_score * 0.20 + gemini_pct * 0.80)))
-        # Marks awarded calculation - more lenient rounding to match "Teacher Sentiment"
-        # If the student is at least 30% of the way to the next mark, round UP.
+        # Rounding
         raw_marks = (final_pct / 100 * float(max_m or 5))
         marks_awarded = int(raw_marks)
-        if raw_marks - marks_awarded >= 0.3:
-            marks_awarded += 1
+        if raw_marks - marks_awarded >= 0.3: marks_awarded += 1
         marks_awarded = min(marks_awarded, max_m)
         total_score += marks_awarded
 
@@ -176,12 +208,11 @@ def upload_and_grade():
             'marks': marks_awarded,
             'maxMarks': max_m or 5,
             'percentage': round(final_pct, 1),
-            'feedback': feedback_data.get('feedback',''),
-            'strengths': feedback_data.get('strengths',[]),
-            'mistakes': feedback_data.get('mistakes',[]),
-            'improvements': feedback_data.get('improvements',[]),
+            'feedback': ai_res.get('feedback', 'Analysis pending.'),
+            'strengths': ai_res.get('strengths', []),
+            'mistakes': ai_res.get('mistakes', []),
+            'improvements': ai_res.get('improvements', []),
             'hasDiagram': bool(ans_entry.get('hasDiagram')),
-            'diagramScore': diag_score,
             'breakdown': {k:v for k,v in ml.items() if k not in ('final','model')},
         })
 
@@ -189,9 +220,6 @@ def upload_and_grade():
 
     # "5 Marks Pass" Logic (User Request)
     status_label = "PASS" if total_score >= 5.0 else "FAIL"
-
-    # Narrative
-    narrative = generate_student_report(student_name, exam.get('title',''), grades, overall_pct)
 
     sub = create_submission({
         'examId': exam_id,
