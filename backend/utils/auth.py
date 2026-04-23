@@ -11,7 +11,7 @@ def check_pw(pw, h): return bcrypt.checkpw(pw.encode(), h.encode())
 
 def make_token(uid, role):
     return jwt.encode({'sub': uid, 'role': role,
-                       'exp': datetime.now(timezone.utc) + timedelta(days=7)},
+                       'exp': datetime.now(timezone.utc) + timedelta(days=30)},
                       SECRET, algorithm='HS256')
 
 def decode_token(tok):

@@ -29,7 +29,7 @@ python -m http.server 8080  # open http://localhost:8080
 
 ---
 
-## 3 USPs
+## 4 USPs
 
 ### USP 1: Reference Paper Grading
 Teacher uploads ONE perfect answer paper → Gemini extracts Q&A →
@@ -45,6 +45,9 @@ First automated diagram comparison in exam grading.
 KMeans clusters student answers per question.
 Heatmap shows class performance patterns — teacher sees which questions
 entire class failed (curriculum gap) vs individual failures (student gap).
+
+### USP 4: AI Answer Key Generation (Context-Aware)
+Teacher can auto-generate the "Perfect Answer Book" and assessment rubrics from general knowledge or strictly using uploaded course PPTs/PDFs. Zero-manual entry for creating marking schemes.
 
 ---
 

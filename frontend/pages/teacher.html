@@ -114,11 +114,46 @@
         <div id="material-list" class="mt-12" style="display:flex;flex-direction:column;gap:5px"></div>
       </div>
 
+      <!-- Option 3: AI Answer Key Generation -->
+      <div class="card" id="ai-gen-card" style="border-color:rgba(16,185,129,.3);background:linear-gradient(135deg,rgba(16,185,129,.03),transparent)">
+        <div class="card-title mb-8" style="color:var(--green)">✨ AI Answer Key Generation</div>
+        <div class="card-sub mb-16" style="line-height:1.6">Automatically generate <strong>model answers, rubrics, and keywords</strong> for the questions in your builder.</div>
+
+        <div id="gen-box" class="hidden">
+            <div style="font-size:.72rem;font-weight:700;margin-bottom:8px;text-transform:uppercase;color:var(--text3)">Action: Generate Answers</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <button class="btn btn-secondary btn-sm" id="gen-gen-btn" onclick="generateAnswers('general')">🔍 Search AI knowledge</button>
+                <button class="btn btn-secondary btn-sm" id="gen-mat-btn" onclick="generateAnswers('material')">📚 From Study Materials</button>
+            </div>
+            <div id="gen-status" class="mt-8"></div>
+            <div id="research-log-btn" class="hidden mt-8">
+                <button class="btn btn-ghost btn-sm w-full" style="border:1px solid var(--green);color:var(--green)" onclick="showResearchLogs()">👁 View AI Research Details</button>
+            </div>
+        </div>
+
+        <div id="gen-empty" style="text-align:center;padding:20px 10px;border:1px dashed rgba(16,185,129,.3);border-radius:var(--rs)">
+            <div style="font-size:1.2rem;margin-bottom:8px">👆</div>
+            <div style="font-size:.75rem;color:var(--text2)">Add questions or upload a paper first to enable AI generation.</div>
+        </div>
+      </div>
+
       <div class="card" style="background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.15);border-radius:var(--rs);padding:12px">
         <div style="font-size:.72rem;font-weight:700;color:var(--blue);margin-bottom:6px">🚀 AI-Assisted Grading</div>
         <div style="font-size:.7rem;color:var(--text2);line-height:1.7">
           <b>Option A</b>: Use a perfectly marked answer paper as a primary key.<br>
-          <b>Option B</b>: Upload supplementary material for a broader knowledge base.
+          <b>Option B</b>: Upload supplementary material for a broader knowledge base.<br>
+          <b>AI Generation</b>: Auto-complete rubrics & answers for existing questions.
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Research Modal -->
+    <div class="overlay" id="modal-research">
+      <div class="modal modal-lg">
+        <div class="modal-head"><h3>🔬 AI Research / Search Logs</h3><button class="modal-close" onclick="closeModal('modal-research')">✕</button></div>
+        <div class="modal-body" id="research-body"></div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" onclick="closeModal('modal-research')">Close</button>
         </div>
       </div>
     </div>
@@ -259,6 +294,7 @@ function renderDash() {
 function addQuestion() {
   qItems.push({text:'',marks:10,modelAnswer:'',keywords:'',hasDiagram:false,subQuestions:[],orEnabled:false});
   renderQList();
+  document.getElementById('gen-box').classList.remove('hidden');
 }
 function addSubQ(qi) {
   qItems[qi].subQuestions.push({text:'',marks:5,modelAnswer:'',isOr:false,hasDiagram:false});
@@ -268,24 +304,50 @@ function removeQ(qi) { qItems.splice(qi,1); renderQList(); }
 function removeSubQ(qi,si) { qItems[qi].subQuestions.splice(si,1); renderQList(); }
 
 function renderQList() {
-  const el=document.getElementById('q-list');
-  if (!qItems.length){el.innerHTML='<div class="text-xs text-dim" style="padding:16px;text-align:center">No questions yet — click + Add Question</div>';return;}
-  el.innerHTML=qItems.map((q,qi)=>`
+  const el = document.getElementById('q-list');
+  const genBox = document.getElementById('gen-box');
+  const genEmpty = document.getElementById('gen-empty');
+  
+  if (qItems.length > 0) {
+    if (genBox) genBox.classList.remove('hidden');
+    if (genEmpty) genEmpty.classList.add('hidden');
+  } else {
+    if (genBox) genBox.classList.add('hidden');
+    if (genEmpty) genEmpty.classList.remove('hidden');
+  }
+
+  if (!qItems.length) {
+    el.innerHTML = '<div class="text-xs text-dim" style="padding:16px;text-align:center">No questions yet — click + Add Question</div>';
+    return;
+  }
+
+  el.innerHTML = qItems.map((q, qi) => `
     <div class="q-item">
       <div class="q-item-head">
-        <span class="q-num-badge">Q${qi+1}</span>
-        <div style="flex:1"><input style="width:100%;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:7px 10px;color:var(--text);font-size:.82rem;outline:none" placeholder="Question text…" value="${esc(q.text)}" oninput="qItems[${qi}].text=this.value"></div>
-        <input type="number" min="1" value="${q.marks}" style="width:56px;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:6px;color:var(--gold);font-family:'JetBrains Mono';text-align:center;font-size:.82rem;outline:none" oninput="qItems[${qi}].marks=+this.value">
+        <span class="q-num-badge">Q${qi + 1}</span>
+        <div style="flex:1">
+          <input style="width:100%;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:7px 10px;color:var(--text);font-size:.82rem;outline:none" 
+                 placeholder="Question text…" value="${esc(q.text)}" oninput="qItems[${qi}].text=this.value">
+        </div>
+        <input type="number" min="1" value="${q.marks}" 
+               style="width:56px;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:6px;color:var(--gold);font-family:'JetBrains Mono';text-align:center;font-size:.82rem;outline:none" 
+               oninput="qItems[${qi}].marks=+this.value">
         <span style="font-size:.7rem;color:var(--text3)">M</span>
         <button onclick="removeQ(${qi})" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:4px">✕</button>
       </div>
+      
       <div style="margin-bottom:8px">
-        <textarea style="width:100%;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:7px 10px;color:rgba(255,255,255,.8);font-size:.76rem;outline:none" placeholder="Ideal Model Answer (for manual/AI grading reference)…" oninput="qItems[${qi}].modelAnswer=this.value">${esc(q.modelAnswer||'')}</textarea>
+        <textarea style="width:100%;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:7px 10px;color:rgba(255,255,255,.8);font-size:.76rem;outline:none" 
+                  placeholder="Ideal Model Answer (for manual/AI grading reference)…" 
+                  oninput="qItems[${qi}].modelAnswer=this.value">${esc(q.modelAnswer || '')}</textarea>
       </div>
+      
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <input style="flex:1;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:6px 9px;color:var(--text2);font-size:.75rem;outline:none" placeholder="Keywords (comma-separated, for ML grading)" value="${esc(q.keywords)}" oninput="qItems[${qi}].keywords=this.value">
+        <input style="flex:1;background:var(--bg4);border:1px solid var(--border);border-radius:var(--rs);padding:6px 9px;color:var(--text2);font-size:.75rem;outline:none" 
+               placeholder="Keywords (comma-separated, for ML grading)" value="${esc(q.keywords)}" 
+               oninput="qItems[${qi}].keywords=this.value">
         <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text2);cursor:pointer;flex-shrink:0">
-          <input type="checkbox" ${q.hasDiagram?'checked':''} onchange="qItems[${qi}].hasDiagram=this.checked"> Diagram
+          <input type="checkbox" ${q.hasDiagram ? 'checked' : ''} onchange="qItems[${qi}].hasDiagram=this.checked"> Diagram
         </label>
       </div>
 
@@ -295,8 +357,10 @@ function renderQList() {
           <div style="font-size:.65rem;font-weight:700;color:var(--blue);margin-bottom:6px;text-transform:uppercase">Marking Rubric (Generated by AI)</div>
           ${q.assessmentParameters.map((ap, api) => `
             <div style="display:flex;gap:10px;margin-bottom:4px;align-items:center">
-              <input style="flex:1;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text2);font-size:.72rem;outline:none" value="${esc(ap.parameter)}" oninput="qItems[${qi}].assessmentParameters[${api}].parameter=this.value">
-              <input type="number" style="width:35px;background:transparent;border:none;color:var(--gold);font-size:.72rem;text-align:right" value="${ap.weight}" oninput="qItems[${qi}].assessmentParameters[${api}].weight=+this.value">
+              <input style="flex:1;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text2);font-size:.72rem;outline:none" 
+                     value="${esc(ap.parameter)}" oninput="qItems[${qi}].assessmentParameters[${api}].parameter=this.value">
+              <input type="number" style="width:35px;background:transparent;border:none;color:var(--gold);font-size:.72rem;text-align:right" 
+                     value="${ap.weight}" oninput="qItems[${qi}].assessmentParameters[${api}].weight=+this.value">
               <span style="font-size:.65rem;color:var(--text3)">M</span>
             </div>
           `).join('')}
@@ -309,22 +373,37 @@ function renderQList() {
           📚 Sources: ${q.relevantSources.map(s => `<span class="badge bg-gray" style="font-size:.62rem;margin-right:4px">${esc(s)}</span>`).join('')}
         </div>
       ` : ''}
-      ${q.subQuestions.map((sq,si)=>`<div class="sub-q">
-        <div style="display:flex;align-items:center;gap:8px">
-          ${sq.isOr?'<span class="or-label">OR</span>':''}
-          <span style="font-family:\'JetBrains Mono\';font-size:.68rem;color:var(--text3);">${qi+1}${String.fromCharCode(97+si)}</span>
-          <input style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:6px 9px;color:var(--text);font-size:.79rem;outline:none" placeholder="Sub-question…" value="${esc(sq.text)}" oninput="qItems[${qi}].subQuestions[${si}].text=this.value">
-          <input type="number" min="1" value="${sq.marks}" style="width:50px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:5px;color:var(--gold);font-family:'JetBrains Mono';text-align:center;font-size:.78rem;outline:none" oninput="qItems[${qi}].subQuestions[${si}].marks=+this.value">
-          <span style="font-size:.68rem;color:var(--text3)">M</span>
-          <label style="display:flex;align-items:center;gap:4px;font-size:.68rem;color:var(--text2);cursor:pointer">
-            <input type="checkbox" ${sq.isOr?'checked':''} onchange="qItems[${qi}].subQuestions[${si}].isOr=this.checked;renderQList()"> OR
-          </label>
-          <button onclick="removeSubQ(${qi},${si})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:.8rem">✕</button>
+      
+      <!-- Research Context / Source Attribution -->
+      ${q.researchContext ? `
+        <div style="background:rgba(16,185,129,.05);border-left:2px solid var(--green);padding:7px 11px;margin-bottom:8px;font-size:.7rem;color:var(--text2);border-radius:0 var(--rs) var(--rs) 0">
+           <span style="font-weight:700;color:var(--green);font-size:.6rem;text-transform:uppercase;margin-right:5px">AI Research Context:</span> ${esc(q.researchContext)}
         </div>
-        <div style="margin:4px 0 8px 18px">
-          <textarea style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:5px 9px;color:rgba(255,255,255,.7);font-size:.72rem;outline:none" placeholder="Model Answer for sub-question…" oninput="qItems[${qi}].subQuestions[${si}].modelAnswer=this.value">${esc(sq.modelAnswer||'')}</textarea>
+      ` : ''}
+
+      ${q.subQuestions.map((sq, si) => `
+        <div class="sub-q">
+          <div style="display:flex;align-items:center;gap:8px">
+            ${sq.isOr ? '<span class="or-label">OR</span>' : ''}
+            <span style="font-family:'JetBrains Mono';font-size:.68rem;color:var(--text3);">${qi + 1}${String.fromCharCode(97 + si)}</span>
+            <input style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:6px 9px;color:var(--text);font-size:.79rem;outline:none" 
+                   placeholder="Sub-question…" value="${esc(sq.text)}" oninput="qItems[${qi}].subQuestions[${si}].text=this.value">
+            <input type="number" min="1" value="${sq.marks}" 
+                   style="width:50px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:5px;color:var(--gold);font-family:'JetBrains Mono';text-align:center;font-size:.78rem;outline:none" 
+                   oninput="qItems[${qi}].subQuestions[${si}].marks=+this.value">
+            <span style="font-size:.68rem;color:var(--text3)">M</span>
+            <label style="display:flex;align-items:center;gap:4px;font-size:.68rem;color:var(--text2);cursor:pointer">
+              <input type="checkbox" ${sq.isOr ? 'checked' : ''} onchange="qItems[${qi}].subQuestions[${si}].isOr=this.checked;renderQList()"> OR
+            </label>
+            <button onclick="removeSubQ(${qi},${si})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:.8rem">✕</button>
+          </div>
+          <div style="margin:4px 0 8px 18px">
+            <textarea style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:5px 9px;color:rgba(255,255,255,.7);font-size:.72rem;outline:none" 
+                      placeholder="Model Answer for sub-question…" 
+                      oninput="qItems[${qi}].subQuestions[${si}].modelAnswer=this.value">${esc(sq.modelAnswer || '')}</textarea>
+          </div>
         </div>
-      </div>`).join('')}
+      `).join('')}
       <button class="btn btn-ghost btn-sm" style="margin-top:8px;font-size:.7rem" onclick="addSubQ(${qi})">+ Sub-question / OR option</button>
     </div>`).join('');
 }
@@ -353,6 +432,7 @@ async function saveExam(status) {
       hasDiagram:q.hasDiagram, modelAnswer:q.modelAnswer||'',
       relevantSources: q.relevantSources || [],
       assessmentParameters: q.assessmentParameters || [],
+      researchContext: q.researchContext || '',
       subQuestions: (q.subQuestions||[]).map((sq,j)=>({
         number:`${i+1}${String.fromCharCode(97+j)}`, 
         text:sq.text, marks:sq.marks, isOr:sq.isOr, hasDiagram:sq.hasDiagram, modelAnswer:sq.modelAnswer||''
@@ -409,6 +489,11 @@ function editExam(id) {
     subQuestions: (q.subQuestions||[]).map(sq=>({...sq}))
   }));
   renderQList();
+  
+  if (qItems.length > 0) {
+    document.getElementById('gen-box').classList.remove('hidden');
+    document.getElementById('gen-status').innerHTML = '';
+  }
 }
 
 // ── REFERENCE PAPER ──
@@ -529,6 +614,54 @@ async function deleteMaterial(mid) {
 }
 
 function materialDrop(e){e.preventDefault();document.getElementById('material-zone').classList.remove('drag');uploadMaterial(e.dataTransfer.files[0]);}
+
+async function generateAnswers(mode) {
+  if (!currentEditingExamId) {
+    toast('Save exam draft first to enable AI answer generation','i');
+    return;
+  }
+  
+  const statusEl = document.getElementById('gen-status');
+  const genBtn = document.getElementById('gen-gen-btn');
+  const matBtn = document.getElementById('gen-mat-btn');
+  
+  const originalGenText = genBtn.innerHTML;
+  const originalMatText = matBtn.innerHTML;
+  
+  genBtn.disabled = true;
+  matBtn.disabled = true;
+  
+  const msg = mode === 'material' ? 'AI Searching student materials for answers...' : 'AI generating answers from search & training data...';
+  statusEl.innerHTML = aiLoad(msg);
+
+  try {
+    const res = await api.post(`/exams/${currentEditingExamId}/generate-answers`, { mode });
+    statusEl.innerHTML = `<span class="badge bg-green">✓ Answers generated!</span>`;
+    toast('Answers generated and synced!','s');
+    
+    if (res.questions) {
+      qItems = res.questions.map(q => ({
+        text: q.text, marks: q.marks, 
+        modelAnswer: q.modelAnswer || '', 
+        keywords: (q.keywords||[]).join(', '),
+        hasDiagram: q.hasDiagram || false,
+        researchContext: q.researchContext || '',
+        assessmentParameters: q.assessmentParameters || [],
+        relevantSources: q.relevantSources || [],
+        subQuestions: (q.subQuestions||[]).map(sq=>({...sq}))
+      }));
+      renderQList();
+      document.getElementById('research-log-btn').classList.remove('hidden');
+    }
+    await loadAll();
+  } catch(e) {
+    statusEl.innerHTML = `<span style="color:var(--red);font-size:.7rem">✗ ${e.message}</span>`;
+    toast(e.message,'e');
+  } finally {
+    genBtn.disabled = false;
+    matBtn.disabled = false;
+  }
+}
 
 // ── MY EXAMS ──
 function renderExamsPage() {
@@ -770,11 +903,36 @@ window.navTo=function(id){
     document.getElementById('ref-title').textContent='Drop reference answer paper';
     document.getElementById('ref-status').innerHTML='';
     qItems=[]; renderQList(); pendingRefFile=null;
+    if (document.getElementById('research-log-btn')) document.getElementById('research-log-btn').classList.add('hidden');
   }
   if(id==='exams')renderExamsPage();
   else if(id==='grade')renderGradePage();
   else if(id==='analytics'){const myEx=allExams.filter(e=>e.teacherId===user.id);const sel=document.getElementById('anal-exam-sel');if(sel&&sel.options.length<=1)myEx.forEach(e=>{const o=document.createElement('option');o.value=e.id;o.textContent=e.title;sel.appendChild(o);});}
 };
+
+function showResearchLogs() {
+  const body = document.getElementById('research-body');
+  if (!qItems.length) { body.innerHTML = '<p class="text-dim">No AI research data available.</p>'; return; }
+  
+  body.innerHTML = qItems.map((q, i) => `
+    <div style="padding:15px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+        <span class="badge bg-blue" style="font-size:.7rem">Question ${i+1}</span>
+        <span class="mono" style="color:var(--gold)">${q.marks} Marks</span>
+      </div>
+      <div style="font-weight:600;font-size:.85rem;margin-bottom:10px">${esc(q.text)}</div>
+      <div style="background:var(--bg4);padding:12px;border-radius:var(--rs);border-left:3px solid var(--green)">
+        <div style="font-size:.65rem;text-transform:uppercase;font-weight:700;color:var(--green);margin-bottom:5px">Research & Search Attribution</div>
+        <div style="font-size:.78rem;line-height:1.6;color:var(--text2)">${esc(q.researchContext || 'No specific research context provided by AI.')}</div>
+      </div>
+      <div style="margin-top:10px;font-size:.7rem;color:var(--text3)">
+        <b>Sources identified:</b> ${q.relevantSources ? q.relevantSources.join(', ') : 'General Knowledge'}
+      </div>
+    </div>
+  `).join('');
+  
+  openModal('modal-research');
+}
 </script>
 </body>
 </html>

@@ -222,6 +222,116 @@ def delete_material(eid, mid):
     update_exam(eid, {'studyMaterial': new_materials})
     return jsonify({'message': 'Material removed'})
 
+# ── Extract Questions from Blank Paper ──
+@exam_bp.route('/<eid>/extract-questions', methods=['POST'])
+@require_auth
+@require_teacher
+def extract_questions_route(eid):
+    """
+    Teacher uploads a BLANK question paper.
+    Gemini extracts the structure (number, text, marks).
+    """
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
+    if 'file' not in request.files: return jsonify({'error':'No file'}),400
+    
+    f = request.files['file']
+    if not allowed(f.filename): return jsonify({'error':'Invalid file type'}),400
+
+    fname = f"qpaper_{eid}_{uuid.uuid4().hex[:6]}.{f.filename.rsplit('.',1)[1].lower()}"
+    path = os.path.join(UPLOAD_DIR, fname)
+    f.save(path)
+
+    from ml.gemini_service import extract_paper_structure
+    try:
+        extracted = extract_paper_structure(path)
+        if not extracted:
+            return jsonify({'error': 'AI failed to extract questions. Please check the paper.'}), 400
+        
+        # Convert to exam questions format
+        converted = []
+        total_m = 0
+        for i, q in enumerate(extracted):
+            m = float(q.get('marks', 5.0))
+            total_m += m
+            converted.append({
+                'id': uuid.uuid4().hex[:6],
+                'number': q.get('number', str(i+1)),
+                'text': q.get('text', ''),
+                'marks': m,
+                'modelAnswer': '',
+                'keywords': [],
+                'subQuestions': []
+            })
+        
+        update_exam(eid, {'questions': converted, 'totalMarks': total_m})
+        return jsonify({
+            'message': f'Extracted {len(converted)} questions.',
+            'questions': converted,
+            'totalMarks': total_m
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+# ── Generate Answers for Questions ──
+@exam_bp.route('/<eid>/generate-answers', methods=['POST'])
+@require_auth
+@require_teacher
+def generate_answers_route(eid):
+    """
+    Generates model answers and rubrics for existing questions.
+    Modes: 'general' (training data) or 'material' (uploaded PDFs/PPTs).
+    """
+    exam = get_exam(eid)
+    if not exam: return jsonify({'error':'Not found'}),404
+    if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
+    
+    questions = exam.get('questions', [])
+    if not questions:
+        return jsonify({'error': 'No questions to generate answers for. Upload a paper or add questions manually first.'}), 400
+    
+    d = request.json or {}
+    mode = d.get('mode', 'general') # 'general' or 'material'
+    
+    study_material_text = None
+    if mode == 'material':
+        materials = exam.get('studyMaterial', [])
+        if not materials:
+            return jsonify({'error': 'No study materials found. Please upload PPTs or PDFs first.'}), 400
+        study_material_text = "\n\n".join([m.get('text', '') for m in materials])
+
+    from ml.gemini_service import enrich_questions_with_answers
+    try:
+        # Prepare for AI (simpler format)
+        ai_input = []
+        for q in questions:
+            ai_input.append({'number': q['number'], 'text': q['text'], 'marks': q['marks']})
+        
+        enriched = enrich_questions_with_answers(ai_input, subject_hint=exam.get('subject', ''), study_material=study_material_text)
+        
+        # Merge back
+        for eq in enriched:
+            # Find matching question in original list
+            q = next((x for x in questions if x['number'] == eq['number']), None)
+            if q:
+                q['modelAnswer'] = eq.get('answerText', '')
+                q['assessmentParameters'] = eq.get('assessmentParameters', [])
+                q['relevantSources'] = eq.get('relevantSources', [])
+                q['researchContext'] = eq.get('researchContext', '')
+                q['hasDiagram'] = eq.get('hasDiagram', False)
+                # Handle keywords if generated (Gemini usually generates them in text sometimes)
+                if not q.get('keywords'):
+                    q['keywords'] = eq.get('relevantSources', [])[:3]
+
+        update_exam(eid, {'questions': questions})
+        return jsonify({
+            'message': 'Answers generated successfully.',
+            'questions': questions
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
 @exam_bp.route('/<eid>/submissions', methods=['GET'])
 @require_auth
 @require_teacher

@@ -232,38 +232,52 @@ def extract_paper_structure(file_path):
         traceback.print_exc()
         return []
 
-def enrich_questions_with_answers(questions, subject_hint=""):
+def enrich_questions_with_answers(questions, subject_hint="", study_material=None):
     """
     STEP 2: CONTENT GENERATION
     Generates model answers, rubrics, and sources for the extracted questions.
+    Can use provided study_material as the primary source of truth.
     """
     if not questions: return []
     try:
         model = get_model()
         q_json = json.dumps(questions)
+        
+        context_block = ""
+        if study_material:
+            context_block = f"\nUSE THE FOLLOWING REFERENCE MATERIAL AS THE PRIMARY SOURCE FOR ANSWERS:\n{study_material}\n"
+        
         prompt = f"""
         ACT AS AN ELITE PROFESSOR.
         Subject: {subject_hint}
+        {context_block}
 
-        For the following questions, generate:
-        1. A perfect, concise MODEL ANSWER.
-        2. 2-3 Assessment Parameters (rubrics) with weights that sum to the total marks.
-        3. Relevant academic sources/concepts.
+        STRICT CONSTRAINTS:
+        1. DO NOT MODIFY THE "marks" PROVIDE IN THE INPUT. 
+        2. ALL "assessmentParameters" WEIGHTS MUST SUM UP EXACTLY TO THE "marks" OF THAT SPECIFIC QUESTION.
+        3. MAINTAIN THE ORIGINAL QUESTION ORDER.
+
+        For each question, generate:
+        - "answerText": A perfect, concise model answer.
+        - "assessmentParameters": A list of {{"parameter": str, "weight": float}} rubrics. Sum of weights MUST = question marks.
+        - "relevantSources": List of specific topics/concepts/sources.
+        - "researchContext": A short one-sentence explanation of how this answer relates to the provided material or academic context.
 
         QUESTIONS:
         {q_json}
 
-        OUTPUT JSON ONLY (Maintain original order, add answerText, relevantSources, assessmentParameters):
+        OUTPUT JSON ONLY (Maintain original order, add answerText, relevantSources, assessmentParameters, researchContext):
         [
           {{
             "number": "...",
             "text": "...",
             "marks": ...,
-            "answerText": "model answer",
-            "relevantSources": ["Concept"],
+            "answerText": "...",
+            "relevantSources": ["..."],
             "assessmentParameters": [
-              {{"parameter": "Defining concept", "weight": 2.0}}
+              {{"parameter": "...", "weight": ...}}
             ],
+            "researchContext": "...",
             "hasDiagram": true/false
           }}
         ]
