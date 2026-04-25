@@ -107,13 +107,13 @@ def ensemble_score(student_ans, ref_ans, keywords=None, weights=None):
     rl  = rouge_l(student_ans, ref_ans)
     kw  = keyword_coverage(student_ans, keywords or [])
 
-    w = weights or {'sbert':0.30,'tfidf':0.35,'rouge_l':0.15,'keywords':0.20}
+    w = weights or {'sbert':0.60, 'tfidf':0.15, 'rouge_l':0.15, 'keywords':0.10}
     final = w['sbert']*sb + w['tfidf']*tf + w['rouge_l']*rl + w['keywords']*kw
 
     return {
         'sbert': round(sb,1), 'tfidf': round(tf,1),
         'rouge_l': round(rl,1), 'keywords': round(kw,1),
-        'final': round(final,1), 'model': 'SBERT+TF-IDF+ROUGE-L+Keywords'
+        'final': round(final,1), 'model': 'SBERT(60%)+Ensemble'
     }
 
 # ── Model 4: Diagram Similarity (OpenCV SSIM) ──

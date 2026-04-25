@@ -102,10 +102,13 @@ def upload_and_grade():
         else:
             flat_questions.append(q)
 
-    # Step 1: Accurate OCR Extraction
+    # Prepare study material for both OCR and Grading
+    study_material_text = "\n\n".join([m.get('text', '') for m in exam.get('studyMaterial', [])])
+
+    # Step 1: Accurate OCR Extraction (Now with Study Material Context)
     from ml.gemini_service import _clean_qnum
     try:
-        extracted = extract_answer_sheet(fpath, flat_questions)
+        extracted = extract_answer_sheet(fpath, flat_questions, study_material=study_material_text)
         ans_map = {_clean_qnum(a['questionNumber']): a for a in extracted} if extracted else {}
     except Exception as e:
         return jsonify({'error': f"OCR Extraction Failed: {str(e)}"}), 400
@@ -124,7 +127,6 @@ def upload_and_grade():
 
     # 3b. Prepare data for Batch Grade
     batch_input = []
-    study_material_text = "\n\n".join([m.get('text', '') for m in exam.get('studyMaterial', [])])
 
     for q in flat_questions:
         qnum_raw = q.get('number','?')
@@ -141,6 +143,7 @@ def upload_and_grade():
             'text': q.get('text',''),
             'marks': q.get('marks', 5),
             'modelAnswer': ref_ans,
+            'aiReferenceText': q.get('aiReferenceText', ''),
             'studentAnswer': student_ans
         })
 

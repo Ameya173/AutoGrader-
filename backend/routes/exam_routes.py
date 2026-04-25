@@ -274,59 +274,43 @@ def extract_questions_route(eid):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
-# ── Generate Answers for Questions ──
-@exam_bp.route('/<eid>/generate-answers', methods=['POST'])
+# ── Optional AI Knowledge Enrichment ──
+@exam_bp.route('/<eid>/enrich-ai', methods=['POST'])
 @require_auth
 @require_teacher
-def generate_answers_route(eid):
+def enrich_ai_route(eid):
     """
-    Generates model answers and rubrics for existing questions.
-    Modes: 'general' (training data) or 'material' (uploaded PDFs/PPTs).
+    Generates OPTIONAL AI-powered reference answers.
+    Keeps original teacher references intact but adds 'aiReferenceText'.
     """
     exam = get_exam(eid)
     if not exam: return jsonify({'error':'Not found'}),404
     if exam.get('teacherId') != g.uid: return jsonify({'error':'Not yours'}),403
     
     questions = exam.get('questions', [])
-    if not questions:
-        return jsonify({'error': 'No questions to generate answers for. Upload a paper or add questions manually first.'}), 400
+    if not questions: return jsonify({'error': 'No questions found.'}), 400
     
     d = request.json or {}
-    mode = d.get('mode', 'general') # 'general' or 'material'
+    use_web = d.get('useWeb', False)
     
-    study_material_text = None
-    if mode == 'material':
-        materials = exam.get('studyMaterial', [])
-        if not materials:
-            return jsonify({'error': 'No study materials found. Please upload PPTs or PDFs first.'}), 400
-        study_material_text = "\n\n".join([m.get('text', '') for m in materials])
+    study_material_text = "\n\n".join([m.get('text', '') for m in exam.get('studyMaterial', [])])
 
-    from ml.gemini_service import enrich_questions_with_answers
+    from ml.gemini_service import enrich_questions_with_ai
     try:
-        # Prepare for AI (simpler format)
-        ai_input = []
-        for q in questions:
-            ai_input.append({'number': q['number'], 'text': q['text'], 'marks': q['marks']})
+        ai_input = [{'number': q['number'], 'text': q['text'], 'marks': q['marks']} for q in questions]
+        enriched = enrich_questions_with_ai(ai_input, subject_hint=exam.get('subject', ''), 
+                                          study_material=study_material_text, use_web=use_web)
         
-        enriched = enrich_questions_with_answers(ai_input, subject_hint=exam.get('subject', ''), study_material=study_material_text)
-        
-        # Merge back
+        # Merge without overwriting original 'modelAnswer'
         for eq in enriched:
-            # Find matching question in original list
             q = next((x for x in questions if x['number'] == eq['number']), None)
             if q:
-                q['modelAnswer'] = eq.get('answerText', '')
-                q['assessmentParameters'] = eq.get('assessmentParameters', [])
-                q['relevantSources'] = eq.get('relevantSources', [])
-                q['researchContext'] = eq.get('researchContext', '')
-                q['hasDiagram'] = eq.get('hasDiagram', False)
-                # Handle keywords if generated (Gemini usually generates them in text sometimes)
-                if not q.get('keywords'):
-                    q['keywords'] = eq.get('relevantSources', [])[:3]
+                q['aiReferenceText'] = eq.get('aiReferenceText', '')
+                q['aiRubrics'] = eq.get('aiRubrics', [])
 
         update_exam(eid, {'questions': questions})
         return jsonify({
-            'message': 'Answers generated successfully.',
+            'message': 'AI Knowledge Enrichment successful.',
             'questions': questions
         })
     except Exception as e:

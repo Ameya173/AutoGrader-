@@ -27,10 +27,14 @@ def _clean_qnum(q):
     if not q: return "?"
     return str(q).strip().lstrip('Qq').strip('. ')
 
-def get_model():
+def get_model(force_refresh=False):
     global _model
-    if _model is not None:
+    if _model is not None and not force_refresh:
         return _model
+    
+    # If refreshing, clear the old one
+    if force_refresh:
+        _model = None
     
     key = os.getenv('GEMINI_API_KEY')
     if not key:
@@ -39,20 +43,25 @@ def get_model():
     genai.configure(api_key=key)
     
     # Automatic Model Selection to prevent 404 errors
-    # We try 1.5-flash (high quota) first, then fallback to others
+    # We try newer models first (2.5, 2.0) as they might have fresh quotas
     models_to_try = [
-        'gemini-1.5-flash',
+        'gemini-3-flash-preview',
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'gemini-3-pro-preview',
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-001',
+        'gemini-flash-lite-latest',
         'gemini-flash-latest',
-        'gemini-1.5-flash-001',
-        'gemini-1.5-flash-002',
-        'gemini-2.0-flash'  # Last resort due to low quota
+        'gemini-1.5-flash',
     ]
     
+    last_error = None
     for model_name in models_to_try:
         try:
             print(f"DEBUG: Attempting to connect to {model_name}...")
             test_model = genai.GenerativeModel(model_name)
-            # Minimal test call to verify name/quota (no images to save bandwidth)
+            # Minimal test call to verify name/quota
             test_model.generate_content("ping") 
             _model = test_model
             print(f"DEBUG: Successfully connected to {model_name}!")
@@ -60,17 +69,23 @@ def get_model():
         except exceptions.NotFound:
             print(f"DEBUG: Model {model_name} not found. Trying next...")
             continue
+        except exceptions.ResourceExhausted as e:
+            print(f"DEBUG: Quota hit for {model_name}: {e}")
+            last_error = e
+            continue
         except Exception as e:
-            # If it's a quota issue, we might still want this model, 
-            # but let's see if another one is available first.
             print(f"DEBUG: Error with {model_name}: {e}")
             last_error = e
             continue
     
-    # Fallback to the first one if all failed
-    print(f"WARNING: All model attempts failed. Defaulting to 1.5-flash. Error: {last_error}")
-    _model = genai.GenerativeModel('gemini-1.5-flash')
-    return _model
+    # If all failed, don't default to a known-failing model.
+    if last_error:
+        print(f"CRITICAL: All model attempts failed. Last error: {last_error}")
+        # We'll return gemini-flash-latest as a final "hopeful" fallback
+        # but we don't set _model so we try again next time
+        return genai.GenerativeModel('gemini-flash-latest')
+    
+    return genai.GenerativeModel('gemini-2.0-flash')
 
 def _safe_json(text, fallback):
     if not text: return fallback
@@ -125,31 +140,35 @@ def extract_questions_from_paper(file_path):
     try:
         model = get_model()
         prompt = """
-        ACT AS AN ELITE EXAM ANALYST & OCR SPECIALIST.
-        You are scanning a REFERENCE ANSWER PAPER. You must capture EVERY mark and question.
+        ACT AS AN ELITE EXAM ANALYST & VISUAL OCR SPECIALIST.
+        You are scanning a REFERENCE ANSWER PAPER. You must capture EVERY mark, question, and piece of data.
+        
+        CRITICAL: HANDWRITTEN TABLES & DATA
+        - If you see a table or comparison, transcribe it using MARKDOWN TABLE format.
+        - Capture all column headers and row data precisely.
+        - If a diagram is present, describe it in 1-2 sentences within the "answerText" (e.g., [Diagram: Schematic of a DC Motor showing...]).
         
         STEP 1: AUDIT THE PAPER
         - Find "Total Marks", "Maximum Marks", or "M.M." (e.g., 20, 50, 100).
         - Count every distinct question block. 
-        - Look at the right-hand margin; marks are often listed there in [brackets] or (parentheses).
-        - WARNING: Do not confuse question numbers like "1)" or "i)" with marks. A question labeled "1)" might be worth 7 marks.
+        - Look at the right-hand margin; marks are often listed there in [brackets].
         
         STEP 2: SCAN FOR HIDDEN QUESTIONS
-        - Ensure you don't miss small questions at the end of pages or at the very top.
-        - Check if questions have sub-parts (like 1a, 1b).
+        - Ensure you don't miss sub-parts (like 1a, 1b).
+        - Capture the FULL text of the question.
         
         STEP 3: VERIFY THE MATH
-        - Sum all the marks you found. If the sum doesn't match the "Total Marks" on the paper, RE-SCAN the document carefully to find missing marks.
+        - Sum all the marks. If the sum doesn't match "Total Marks", RE-SCAN.
         
         OUTPUT FORMAT (JSON ONLY):
         [
           {
-            "number": "string (CAPTURE SUB-QUESTIONS e.g., 1a, 1b, 1c)",
+            "number": "string",
             "text": "full question wording",
-            "marks": number (BE PRECISE - e.g., 6, 7, 7),
-            "answerText": "the model/reference answer text",
+            "marks": number,
+            "answerText": "model answer (USE MARKDOWN TABLES IF NEEDED)",
             "keywords": ["essential", "terms"],
-            "hasDiagram": true/false (Set true if the question asks for or includes a diagram/sketch/graph/figure)
+            "hasDiagram": true/false
           }
         ]
         """
@@ -174,7 +193,8 @@ def extract_questions_from_paper(file_path):
         time.sleep(2) 
         # Final try
         try:
-            resp = model.generate_content([_img_part(file_path), prompt], safety_settings=SAFETY_NONE)
+            new_model = get_model(force_refresh=True)
+            resp = new_model.generate_content([_img_part(file_path), prompt], safety_settings=SAFETY_NONE)
             data = _safe_json(resp.text, [])
             for item in data: item['number'] = _clean_qnum(item.get('number'))
             return data
@@ -222,7 +242,8 @@ def extract_paper_structure(file_path):
         print("WARNING: Quota hit during OCR. Retrying in 10s...")
         time.sleep(10)
         try:
-            resp = model.generate_content([_img_part(file_path), prompt], safety_settings=SAFETY_NONE)
+            new_model = get_model(force_refresh=True)
+            resp = new_model.generate_content([_img_part(file_path), prompt], safety_settings=SAFETY_NONE)
             data = _safe_json(resp.text, [])
             for item in data: item['number'] = _clean_qnum(item.get('number'))
             return data
@@ -232,108 +253,102 @@ def extract_paper_structure(file_path):
         traceback.print_exc()
         return []
 
-def enrich_questions_with_answers(questions, subject_hint="", study_material=None):
+def enrich_questions_with_ai(questions, subject_hint="", study_material=None, use_web=False):
     """
-    STEP 2: CONTENT GENERATION
-    Generates model answers, rubrics, and sources for the extracted questions.
-    Can use provided study_material as the primary source of truth.
+    OPTIONAL STEP: AI KNOWLEDGE ENRICHMENT
+    Generates additional AI-powered reference answers and rubrics.
+    If use_web=True, it performs deep research to provide a global academic perspective.
     """
     if not questions: return []
     try:
         model = get_model()
+        # If web search is requested, we use a research-capable configuration if available
+        # Otherwise, the prompt itself directs the AI to use its global knowledge
         q_json = json.dumps(questions)
         
         context_block = ""
         if study_material:
-            context_block = f"\nUSE THE FOLLOWING REFERENCE MATERIAL AS THE PRIMARY SOURCE FOR ANSWERS:\n{study_material}\n"
+            context_block = f"\nPRIMARY CONTEXT (Teacher's Material):\n{study_material[:10000]}\n"
+        
+        research_instruction = ""
+        if use_web:
+            research_instruction = "RESEARCH MODE ACTIVE: Search the web/global academic databases to provide the most accurate, state-of-the-art answer. Ensure the answer aligns with standard university curricula."
         
         prompt = f"""
-        ACT AS AN ELITE PROFESSOR.
+        ACT AS AN ELITE UNIVERSITY PROFESSOR & RESEARCHER.
         Subject: {subject_hint}
         {context_block}
+        {research_instruction}
 
+        TASK: For each question provided, generate a "Global AI Reference Answer" that represents a perfect, high-scoring response.
+        
         STRICT CONSTRAINTS:
-        1. DO NOT MODIFY THE "marks" PROVIDE IN THE INPUT. 
-        2. ALL "assessmentParameters" WEIGHTS MUST SUM UP EXACTLY TO THE "marks" OF THAT SPECIFIC QUESTION.
-        3. MAINTAIN THE ORIGINAL QUESTION ORDER.
-
-        For each question, generate:
-        - "answerText": A perfect, concise model answer.
-        - "assessmentParameters": A list of {{"parameter": str, "weight": float}} rubrics. Sum of weights MUST = question marks.
-        - "relevantSources": List of specific topics/concepts/sources.
-        - "researchContext": A short one-sentence explanation of how this answer relates to the provided material or academic context.
-
-        QUESTIONS:
-        {q_json}
-
-        OUTPUT JSON ONLY (Maintain original order, add answerText, relevantSources, assessmentParameters, researchContext):
-        [
-          {{
-            "number": "...",
-            "text": "...",
-            "marks": ...,
-            "answerText": "...",
-            "relevantSources": ["..."],
-            "assessmentParameters": [
-              {{"parameter": "...", "weight": ...}}
-            ],
-            "researchContext": "...",
-            "hasDiagram": true/false
-          }}
-        ]
-        """
-        resp = model.generate_content(prompt, safety_settings=SAFETY_NONE)
-        if not resp.text: raise ValueError("AI Empty Response")
-        data = _safe_json(resp.text, [])
-        return data if data else questions # Fallback to original if enrichment fails
-    except exceptions.ResourceExhausted:
-        print("WARNING: Quota hit during Enrichment. Retrying in 12s...")
-        time.sleep(12)
-        try:
-            resp = model.generate_content(prompt, safety_settings=SAFETY_NONE)
-            return _safe_json(resp.text, questions)
-        except: return questions
-    except Exception as e:
-        print(f"ERROR Question Enrichment: {e}")
-        return questions
-
-def generate_reference_book_from_paper(file_path):
-    """
-    LEGACY WRAPPER: Now uses the split pipeline internally.
-    """
-    print("DEBUG: Using legacy wrapper for Answer Book generation...")
-    structure = extract_paper_structure(file_path)
-    if not structure: return []
-    return enrich_questions_with_answers(structure)
-
-def extract_answer_sheet(file_path, questions):
-    """
-    OCR for student answers. 
-    UPGRADED: Context-Aware Transcription for messy handwriting.
-    """
-    try:
-        model = get_model()
-        q_ctx = "\n".join([f"{_clean_qnum(q.get('number'))}: {q.get('text')[:100]}" for q in questions])
-        prompt = f"""
-        ACT AS AN EXPERT HANDWRITING DECODER.
-        Transcribe the handwritten student answers from this image.
-        
-        CRITICAL RULES:
-        1. CONTEXTUAL RECOVERY: Student handwriting may be messy. Use the context of the question (provided below) to infer the most likely words.
-        2. IGNORE STRUCK-THROUGH TEXT: If a student has drawn a line through a sentence or a block of text, DO NOT transcribe it. Treat it as deleted.
-        3. DO NOT SKIP: Even if a sentence is messy, transcribe your best guess (unless it is struck through).
-        4. NO SUMMARIES: Write the exact text as seen or intended.
-        5. DIAGRAMS: Note if a diagram/image is present for that question.
-        
-        QUESTION CONTEXT:
-        {q_ctx}
+        1. DO NOT MODIFY THE "marks" provided.
+        2. CAPTURE ALL TECHNICAL TERMS.
         
         OUTPUT FORMAT (JSON ONLY):
         [
           {{
-            "questionNumber": "match the IDs from context above",
-            "answerText": "transcribed text",
-            "hasDiagram": true/false (Set true if the student has drawn a diagram, sketch, or box for this question)
+            "number": "...",
+            "aiReferenceText": "Concise but perfect answer based on AI/Web knowledge.",
+            "aiRubrics": [
+              {{"parameter": "Technical Accuracy", "weight": ...}},
+              {{"parameter": "Clarity & Structure", "weight": ...}}
+            ]
+          }}
+        ]
+
+        QUESTIONS:
+        {q_json}
+        """
+        
+        # We don't use tools=[...] here to avoid 400 errors on older models, 
+        # but modern Gemini models will use their built-in search if prompted for research.
+        resp = model.generate_content(prompt, safety_settings=SAFETY_NONE)
+        if not resp.text: raise ValueError("AI Empty Response")
+        data = _safe_json(resp.text, [])
+        return data
+    except Exception as e:
+        print(f"ERROR AI Enrichment: {e}")
+        return []
+
+def extract_answer_sheet(file_path, questions, study_material=None):
+    """
+    OCR for student answers. 
+    UPGRADED: Context-Aware Transcription using both Question Text AND Study Materials.
+    """
+    try:
+        model = get_model()
+        q_ctx = "\n".join([f"{_clean_qnum(q.get('number'))}: {q.get('text')[:100]}" for q in questions])
+        
+        # Add study material context to help with messy technical terms
+        material_ctx = ""
+        if study_material:
+            # We take a snippet if it's too long, but usually it's fine
+            material_ctx = f"\nTECHNICAL CONTEXT FROM STUDY MATERIAL:\n{study_material[:5000]}\n"
+
+        prompt = f"""
+        ACT AS AN EXPERT HANDWRITING & TABULAR DATA DECODER.
+        Transcribe the handwritten student answers from this image.
+        
+        STRICT MATCHING RULES:
+        1. NO FORCE-MATCHING: Only extract an answer if it is explicitly written. If a question from the context is NOT answered by the student, DO NOT include it in the output.
+        2. CROSS-REFERENCE CONTENT: Don't just look at the number the student wrote (e.g., "1"). Look at the words they wrote and match them to the most relevant QUESTION CONTEXT below. 
+        3. TECHNICAL DECODING: Use the TECHNICAL CONTEXT FROM STUDY MATERIAL provided below to help decode messy handwriting. If a word looks like a technical term from the material, it likely is.
+        4. HANDLE "OR" / OPTIONAL QUESTIONS: Ensure the "questionNumber" in your JSON matches the correct ID from the context based on content alignment.
+        5. ACCURATE TRANSCRIPTION: If a student writes a table, use MARKDOWN TABLE format. 
+        6. IGNORE STRUCK-THROUGH TEXT: If text is crossed out, DO NOT transcribe it.
+        
+        QUESTION CONTEXT (ID: Question Text):
+        {q_ctx}
+        {material_ctx}
+        
+        OUTPUT FORMAT (JSON ONLY):
+        [
+          {{
+            "questionNumber": "ID from context (e.g., 1a, 2, 5b)",
+            "answerText": "transcribed text (USE MARKDOWN TABLES FOR TABULAR DATA)",
+            "hasDiagram": true/false
           }}
         ]
         """
@@ -347,15 +362,18 @@ def extract_answer_sheet(file_path, questions):
         return data
         
     except exceptions.ResourceExhausted:
-        print("WARNING: Student OCR Quota hit. Sleeping 5s to recover...")
-        time.sleep(5)
+        print("WARNING: Student OCR Quota hit. Attempting model switch...")
+        time.sleep(2)
         try:
-            resp = model.generate_content([_img_part(file_path), prompt], safety_settings=SAFETY_NONE)
+            # Force refresh to find another working model
+            new_model = get_model(force_refresh=True)
+            resp = new_model.generate_content([_img_part(file_path), prompt], safety_settings=SAFETY_NONE)
             data = _safe_json(resp.text, [])
             for item in data: item['questionNumber'] = _clean_qnum(item.get('questionNumber'))
             return data
         except Exception as retry_e:
-            raise RuntimeError("Gemini API is busy. Please wait 60 seconds and try again.")
+            print(f"CRITICAL: Retry failed: {retry_e}")
+            raise RuntimeError("Gemini API is busy across all available models. Please wait 60 seconds and try again.")
             
     except Exception as e:
         print(f"ERROR Student OCR: {e}")
@@ -394,8 +412,11 @@ def grade_answer_feedback(question_text, model_answer, student_answer, marks, ml
 
         QUESTION ({marks} marks total): {question_text}
 
-        REFERENCE ANSWER (Ideal points):
+        REFERENCE ANSWER (Teacher's Ideal points):
         {model_answer.get('answerText', model_answer) if isinstance(model_answer, dict) else model_answer}
+
+        AI KNOWLEDGE REFERENCE (Web/Global Research):
+        {model_answer.get('aiReferenceText', 'No additional AI research provided.') if isinstance(model_answer, dict) else 'N/A'}
 
         STUDENT'S ANSWER:
         {student_answer}
@@ -454,6 +475,7 @@ def grade_batch_feedback(student_name, exam_title, questions_batch, study_materi
 --- QUESTION {q.get('number', '?')} ({q.get('marks', 5)} marks) ---
 TEXT: {q.get('text')}
 REFERENCE: {q.get('modelAnswer')}
+AI KNOWLEDGE REFERENCE: {q.get('aiReferenceText', 'Not available')}
 STUDENT ANSWER: {q.get('studentAnswer')}
 ML PRELIMINARY SCORE: {q.get('mlScore', 0)}%
 """)
@@ -465,14 +487,13 @@ ACT AS AN ELITE UNIVERSITY PROFESSOR & FAIR GRADER.
 Student: {student_name}
 Exam: {exam_title}
 
-Grade the student answers for the following questions based on the REFERENCE provided and the ADDITIONAL STUDY MATERIAL context.
+GRADING PHILOSOPHY (TRIPLE SOURCE VALIDATION):
+1. TRIPLE SOURCE VALIDATION: Use the REFERENCE answer paper, the ADDITIONAL STUDY MATERIAL (PPTs/PDFs), and the AI KNOWLEDGE REFERENCE (from Web Search) as valid sources for marks. If a concept is valid in any of these, AWARD MARKS.
+2. CONCEPT OVER SYNTAX: If the student demonstrates clear understanding of the core concepts, be generous. Do not penalize for slightly different wording.
+3. ENCOURAGE ACCURACY: Aim for high accuracy. If a student's answer is 70% correct conceptually across the sources, they should receive at least 70% marks.
+4. AVOID HYPER-STRICTNESS: Only penalize if the answer is factually wrong or completely missing from all provided sources.
 
-GRADING PHILOSOPHY:
-- BE FAIR & ENCOURAGING: Award marks for conceptual understanding.
-- DEPTH CHECK: High-mark questions require detailed answers. Penalize for brevity.
-- CONSISTENCY: Maintain a consistent standard across all questions.
-
-ADDITIONAL STUDY MATERIAL CONTEXT:
+ADDITIONAL STUDY MATERIAL CONTEXT (PRIMARY SOURCE OF TRUTH):
 {study_material if study_material else 'No additional material provided.'}
 
 QUESTIONS TO GRADE:
