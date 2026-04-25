@@ -30,11 +30,7 @@
         <div class="field"><label>Email</label><input type="email" id="l-email" placeholder="you@college.edu"></div>
         <div class="field"><label>Password</label><input type="password" id="l-pass" placeholder="••••••••"></div>
         <button class="btn btn-primary w-full btn-lg" id="l-btn" onclick="doLogin()">Sign In →</button>
-        <div class="divider"><span>demo accounts</span></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <button class="btn btn-secondary" onclick="demo('teacher')">👨‍🏫 Demo Teacher</button>
-          <button class="btn btn-secondary" onclick="demo('student')">🎓 Demo Student</button>
-        </div>
+
       </div>
 
       <!-- REGISTER -->
@@ -123,15 +119,7 @@
       finally { btn.disabled = false; btn.textContent = 'Create Account →'; }
     }
 
-    async function demo(r) {
-      const email = r === 'teacher' ? 'teacher@demo.com' : 'student@demo.com';
-      try {
-        const res = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'demo123' }) });
-        const d = await res.json(); if (!res.ok) { showErr(d.error || 'Demo failed'); return; }
-        localStorage.setItem('examai_token', d.token); localStorage.setItem('examai_user', JSON.stringify(d.user));
-        location.href = d.user.role === 'teacher' ? 'pages/teacher.html' : 'pages/student.html';
-      } catch (e) { showErr('Backend not running. Start: python app.py'); }
-    }
+
 
     const t = localStorage.getItem('examai_token'), u = JSON.parse(localStorage.getItem('examai_user') || 'null');
     if (t && u) location.href = u.role === 'teacher' ? 'pages/teacher.html' : 'pages/student.html';
