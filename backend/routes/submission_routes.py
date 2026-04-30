@@ -163,6 +163,7 @@ def upload_and_grade():
     grades = []
     total_score = 0
     max_score = 0
+    total_pure_ml = 0
 
     for q in flat_questions:
         qnum_raw = q.get('number','?')
@@ -189,6 +190,9 @@ def upload_and_grade():
                             for d in student_diagrams], default=0)
                 diag_score = best
                 ml_score = ml_score * 0.7 + diag_score * 0.3
+
+        pure_ml_marks = (ml_score / 100 * float(max_m or 5))
+        total_pure_ml += pure_ml_marks
 
         # AI Score
         ai_res = ai_map.get(qnum_clean, {})
@@ -220,6 +224,7 @@ def upload_and_grade():
         })
 
     overall_pct = round(total_score / max_score * 100, 1) if max_score > 0 else 0
+    pure_ml_pct = round(total_pure_ml / max_score * 100, 1) if max_score > 0 else 0
 
     # "5 Marks Pass" Logic (User Request)
     status_label = "PASS" if total_score >= 5.0 else "FAIL"
@@ -235,7 +240,7 @@ def upload_and_grade():
         'totalScore': round(total_score,1),
         'maxScore': max_score,
         'percentage': overall_pct,
-        'mlScore': overall_pct,
+        'mlScore': pure_ml_pct,
         'result': status_label,
         'narrative': narrative,
         'status': 'graded',

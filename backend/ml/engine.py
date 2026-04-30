@@ -96,7 +96,7 @@ def keyword_coverage(text, keywords):
 def ensemble_score(student_ans, ref_ans, keywords=None, weights=None):
     """
     Final score = weighted ensemble of:
-      SBERT(40%) + TF-IDF(25%) + ROUGE-L(20%) + Keywords(15%)
+      SBERT(50%) + TF-IDF(20%) + ROUGE-L(15%) + Keywords(15%)
     Returns dict with individual scores + final
     """
     if not student_ans.strip():
@@ -107,13 +107,13 @@ def ensemble_score(student_ans, ref_ans, keywords=None, weights=None):
     rl  = rouge_l(student_ans, ref_ans)
     kw  = keyword_coverage(student_ans, keywords or [])
 
-    w = weights or {'sbert':0.60, 'tfidf':0.15, 'rouge_l':0.15, 'keywords':0.10}
+    w = weights or {'sbert':0.50, 'tfidf':0.20, 'rouge_l':0.15, 'keywords':0.15}
     final = w['sbert']*sb + w['tfidf']*tf + w['rouge_l']*rl + w['keywords']*kw
 
     return {
         'sbert': round(sb,1), 'tfidf': round(tf,1),
         'rouge_l': round(rl,1), 'keywords': round(kw,1),
-        'final': round(final,1), 'model': 'SBERT(60%)+Ensemble'
+        'final': round(final,1), 'model': 'SBERT(50%)+Ensemble'
     }
 
 # ── Model 4: Diagram Similarity (OpenCV SSIM) ──
@@ -209,20 +209,25 @@ def detect_weaknesses(grades):
 def accuracy_report(all_submissions):
     """
     Computes model accuracy metrics across all submissions.
-    Compares ML-predicted grade vs teacher-overridden grade (if any).
+    Compares Pure ML grade vs Final truth (teacher override or Gemini merged grade).
     """
-    pairs = [(s['mlScore'], s.get('teacherScore', s['mlScore']))
+    pairs = [(s['mlScore'], s.get('teacherScore', s.get('percentage', s['mlScore'])))
              for s in all_submissions
-             if 'mlScore' in s and s.get('status') == 'graded']
+             if 'mlScore' in s and 'percentage' in s and s.get('status') == 'graded']
     if not pairs:
         return {'mae': None, 'samples': 0}
     ml_scores = [p[0] for p in pairs]
     teacher_scores = [p[1] for p in pairs]
     mae = float(np.mean(np.abs(np.array(ml_scores) - np.array(teacher_scores))))
-    corr = float(np.corrcoef(ml_scores, teacher_scores)[0,1]) if len(pairs) > 1 else 1.0
+    
+    with np.errstate(divide='ignore', invalid='ignore'):
+        corr = float(np.corrcoef(ml_scores, teacher_scores)[0,1]) if len(pairs) > 1 else 1.0
+        if np.isnan(corr):
+            corr = 1.0
+
     return {
         'mae': round(mae, 2),
-        'correlation': round(corr, 3),
+        'correlation': round(corr, 3) if corr is not None else None,
         'samples': len(pairs),
         'avg_ml': round(float(np.mean(ml_scores)), 1),
         'avg_teacher': round(float(np.mean(teacher_scores)), 1)

@@ -292,8 +292,8 @@ def enrich_questions_with_ai(questions, subject_hint="", study_material=None, us
             "number": "...",
             "aiReferenceText": "Concise but perfect answer based on AI/Web knowledge.",
             "aiRubrics": [
-              {{"parameter": "Technical Accuracy", "weight": ...}},
-              {{"parameter": "Clarity & Structure", "weight": ...}}
+              {{"parameter": "Technical Accuracy", "weight": 60}}, // Percentage out of 100
+              {{"parameter": "Clarity & Structure", "weight": 40}} // Must sum to 100
             ]
           }}
         ]

@@ -364,7 +364,7 @@ function renderQList() {
       ${(q.aiRubrics && q.aiRubrics.length) ? `
         <div style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:var(--rs);padding:10px;margin-bottom:8px">
           <div style="font-size:.62rem;font-weight:700;color:var(--blue);margin-bottom:6px;text-transform:uppercase">AI Marking Parameters</div>
-          ${q.aiRubrics.map(r => `<div class="flex jc-sb mb-4"><span style="font-size:.7rem;color:var(--text2)">${esc(r.parameter)}</span><span class="mono" style="font-size:.7rem;color:var(--gold)">${r.weight}M</span></div>`).join('')}
+          ${q.aiRubrics.map(r => `<div class="flex jc-sb mb-4"><span style="font-size:.7rem;color:var(--text2)">${esc(r.parameter)}</span><span class="mono" style="font-size:.7rem;color:var(--gold)">${r.weight}%</span></div>`).join('')}
         </div>
       ` : ''}
 
